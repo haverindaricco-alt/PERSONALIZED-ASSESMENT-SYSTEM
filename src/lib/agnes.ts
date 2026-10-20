@@ -1,17 +1,27 @@
 import type { IndicatorSummary } from "../types";
 
 /* ============================================================
-   Agnes AI (OpenAI-compatible chat completions)
-   Base: https://apihub.agnes-ai.com/v1  Model: agnes-2.5-flash
-   Dipanggil langsung lewat fetch, tanpa SDK tambahan.
+   Agnes AI via Cloudflare Pages Function (/api/agnes-proxy).
+   Produksi: kunci ADA DI SERVER (AGNES_API_KEY env Cloudflare),
+   tidak pernah masuk bundle browser (SEC-05).
+   Dev: bila belum ada proxy lokal, boleh memanggil langsung
+   memakai VITE_AGNES_API_KEY (hanya diekseskusi saat mode dev).
    ============================================================ */
 
-const BASE_URL = (
-  import.meta.env.VITE_AGNES_BASE_URL || "https://apihub.agnes-ai.com/v1"
-).replace(/\/+$/, "");
-const MODEL = import.meta.env.VITE_AGNES_MODEL || "agnes-2.5-flash";
-const API_KEY = import.meta.env.VITE_AGNES_API_KEY || "";
+const PROXY_URL = "/api/agnes-proxy";
 const TIMEOUT_MS = 15_000;
+const DEFAULT_BASE = "https://apihub.agnes-ai.com/v1";
+const DEFAULT_MODEL = "agnes-2.5-flash";
+
+const DEV_KEY = import.meta.env.DEV
+  ? import.meta.env.VITE_AGNES_API_KEY || ""
+  : "";
+const DEV_BASE = import.meta.env.DEV
+  ? import.meta.env.VITE_AGNES_BASE_URL || DEFAULT_BASE
+  : DEFAULT_BASE;
+const DEV_MODEL = import.meta.env.DEV
+  ? import.meta.env.VITE_AGNES_MODEL || DEFAULT_MODEL
+  : DEFAULT_MODEL;
 
 const SYSTEM_PROMPT = `Kamu adalah guru pembina berbahasa Indonesia yang menulis rekomendasi belajar personal berdasarkan hasil ujian pilihan ganda materi pecahan.
 
@@ -214,50 +224,80 @@ function normalizeOutput(raw: string, input: RecommendationInput): string {
 
 /* ---------- Pemanggilan API ---------- */
 
+async function chatViaProxy(
+  userContent: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const res = await fetch(PROXY_URL, {
+    method: "POST",
+    signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userContent },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`Proxy merespons ${res.status}`);
+  const data = (await res.json()) as { content?: string };
+  return (data.content || "").trim();
+}
+
+/** Hanya dipakai di mode dev bila proxy belum berjalan. */
+async function chatViaDevDirect(
+  userContent: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const res = await fetch(`${DEV_BASE}/chat/completions`, {
+    method: "POST",
+    signal,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${DEV_KEY}`,
+    },
+    body: JSON.stringify({
+      model: DEV_MODEL,
+      temperature: 0.3,
+      max_tokens: 350,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userContent },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`Agnes API merespons ${res.status}`);
+  const data = (await res.json()) as ChatResponse;
+  return (data.choices?.[0]?.message?.content || "").trim();
+}
+
 /** Minta rekomendasi belajar. Selalu terpenuhi (punya fallback). */
 export async function recommendLearning(
   input: RecommendationInput,
 ): Promise<string> {
-  try {
-    if (!API_KEY || API_KEY.startsWith("YOUR_")) {
-      return buildFallback(input);
-    }
-    const userContent = [
-      `Nama siswa: ${input.studentName}`,
-      `Nilai akhir: ${input.score.toLocaleString("id-ID", { maximumFractionDigits: 2 })} dari skala 100`,
-      `Jawaban benar: ${input.correctCount}, salah: ${input.wrongCount}, total soal: ${input.totalQuestions}`,
-      `Peta penguasaan indikator: ${indicatorLines(input.indicators)}`,
-    ].join("\n");
+  const userContent = [
+    `Nama siswa: ${input.studentName}`,
+    `Nilai akhir: ${input.score.toLocaleString("id-ID", { maximumFractionDigits: 2 })} dari skala 100`,
+    `Jawaban benar: ${input.correctCount}, salah: ${input.wrongCount}, total soal: ${input.totalQuestions}`,
+    `Peta penguasaan indikator: ${indicatorLines(input.indicators)}`,
+  ].join("\n");
 
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    let text = "";
     try {
-      const res = await fetch(`${BASE_URL}/chat/completions`, {
-        method: "POST",
-        signal: ctrl.signal,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          temperature: 0.3,
-          max_tokens: 350,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: userContent },
-          ],
-        }),
-      });
-      if (!res.ok) throw new Error(`Agnes API merespons ${res.status}`);
-      const data = (await res.json()) as ChatResponse;
-      const text = data.choices?.[0]?.message?.content?.trim();
-      if (text && text.length > 0) return normalizeOutput(text, input);
-      return buildFallback(input);
-    } finally {
-      clearTimeout(timer);
+      text = await chatViaProxy(userContent, ctrl.signal);
+    } catch (err) {
+      /* Dev tolak: proxy belum jalan → coba jalur langsung (kunci dev saja). */
+      if (!import.meta.env.DEV || !DEV_KEY) throw err;
+      text = await chatViaDevDirect(userContent, ctrl.signal);
     }
+    if (text.length > 0) return normalizeOutput(text, input);
+    return buildFallback(input);
   } catch {
     return buildFallback(input);
+  } finally {
+    clearTimeout(timer);
   }
 }

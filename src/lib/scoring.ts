@@ -3,6 +3,7 @@ import type {
   AnswerLetter,
   IndicatorSummary,
   QuestionRow,
+  StudentQuestion,
 } from "../types";
 import { ANSWER_LETTERS } from "../types";
 
@@ -16,8 +17,12 @@ export function fisherYates<T>(source: T[]): T[] {
   return arr;
 }
 
-export function optionText(question: QuestionRow, letter: AnswerLetter): string {
-  const key = `option_${letter.toLowerCase()}` as keyof QuestionRow;
+/** Menerima StudentQuestion juga (QuestionRow extends StudentQuestion). */
+export function optionText(
+  question: StudentQuestion,
+  letter: AnswerLetter,
+): string {
+  const key = `option_${letter.toLowerCase()}` as keyof StudentQuestion;
   return String(question[key]);
 }
 

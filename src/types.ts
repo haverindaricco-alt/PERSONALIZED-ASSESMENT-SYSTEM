@@ -2,7 +2,9 @@ export type AnswerLetter = "A" | "B" | "C" | "D" | "E";
 
 export const ANSWER_LETTERS: AnswerLetter[] = ["A", "B", "C", "D", "E"];
 
-export interface QuestionRow {
+/** Soal versi aman milik siswa: TANPA kunci jawaban.
+    Dikirim dari view questions_public (security-patch.sql). */
+export interface StudentQuestion {
   id: string;
   question_number: number;
   question_text: string;
@@ -11,8 +13,12 @@ export interface QuestionRow {
   option_c: string;
   option_d: string;
   option_e: string;
-  correct_answer: AnswerLetter;
   indicator: string;
+}
+
+/** Soal lengkap milik admin (bisa tayang kunci jawaban). */
+export interface QuestionRow extends StudentQuestion {
+  correct_answer: AnswerLetter;
   created_at?: string;
 }
 
@@ -21,7 +27,6 @@ export interface SettingsRow {
   token: string;
   status: "AKTIF" | "TIDAK_AKTIF";
   duration_minutes: number;
-  admin_pin: string;
   created_at?: string;
 }
 
@@ -46,6 +51,10 @@ export interface ResultRow {
   total_questions: number;
   completion_status: string;
   answers_json: AnswerMap | null;
+  /** Peta id soal -> benar/salah. Hasil grading dari server. */
+  answers_correct_json: Record<string, boolean> | null;
+  /** Peta id soal -> huruf kunci (hanya soal yang dijawab). */
+  answers_key_json: Record<string, AnswerLetter> | null;
   indicator_summary_json: IndicatorSummary[] | null;
   ai_recommendation: string | null;
   created_at: string;
@@ -57,8 +66,8 @@ export interface QuizSession {
   token: string;
   durationMinutes: number;
   deadlineMs: number;
-  /** Urutan soal sudah ter-cocok (Fisher-Yates) saat mulai. */
-  questions: QuestionRow[];
+  /** Urutan soal sudah ter-acak (Fisher-Yates) saat mulai. */
+  questions: StudentQuestion[];
 }
 
 export type CompletionKind = "done" | "timeout" | "violation";

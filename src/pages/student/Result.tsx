@@ -1,56 +1,64 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Bot, Check, X, TimerOff } from "lucide-react";
 import { Card, IndicatorBar, Reveal } from "../../components/ui";
 import { GlobalNav } from "../../components/nav";
 import {
-  ensureSupabaseConfigured,
   errorMessage,
-  fetchQuestionMap,
-  fetchResultById,
+  fetchStudentQuestionMap,
+  getResultForStudent,
+  attachRecommendation,
 } from "../../lib/supabase";
 import { formatIdDateTime, formatScore, optionText } from "../../lib/scoring";
+import { recommendLearning } from "../../lib/agnes";
 import {
   classifyCompletion,
   type AnswerLetter,
-  type QuestionRow,
   type ResultRow,
+  type StudentQuestion,
 } from "../../types";
 
 const btnPrimaryLink =
   "press focus-ring inline-flex items-center justify-center rounded-pill bg-primary px-[22px] py-[11px] text-body text-white";
 
-export default function Result() {  const [params] = useSearchParams();
-  const id = params.get("id");
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  const [result, setResult] = useState<ResultRow | null>(null);
-  const [questionMap, setQuestionMap] = useState<Map<string, QuestionRow>>(
+interface LocState {
+  row?: ResultRow;
+}
+
+export default function Result() {
+  const [params] = useSearchParams();
+  const navigateState = useLocation().state as LocState | null;
+  const id = params.get("id");
+  const tokenParam = params.get("t");
+
+  const [result, setResult] = useState<ResultRow | null>(
+    navigateState?.row ?? null,
+  );
+  const [questionMap, setQuestionMap] = useState<Map<string, StudentQuestion>>(
     () => new Map(),
   );
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!navigateState?.row);
   const [error, setError] = useState<string | null>(null);
+  const [recPending, setRecPending] = useState(false);
 
   useEffect(() => {
+    document.title = "Hasil Ujian — Personalized Assessment";
+    /* Bila dibuka dengan id yang tak valid, langsung pesan tanpa mengenal */
+    if (navigateState?.row) return;
     let alive = true;
     async function load() {
-      if (!id) {
+      if (!id || !UUID_RE.test(id) || !tokenParam) {
         setError(
-          "Tidak ada hasil ujian yang ditunjuk. Mulai ujian terlebih dahulu.",
+          "Tautan hasil tidak valid. Buka hasil dari halaman ujian Anda.",
         );
-        setLoading(false);
         return;
       }
       try {
-        ensureSupabaseConfigured();
-        const row = await fetchResultById(id);
-        const qm = await fetchQuestionMap();
-        if (!alive) return;
-        if (!row) {
-          setError("Hasil ujian tidak ditemukan.");
-        } else {
-          setResult(row);
-          setQuestionMap(qm);
-        }
+        const row = await getResultForStudent(id, tokenParam);
+        if (alive) setResult(row);
       } catch (err) {
         if (alive) setError(errorMessage(err));
       } finally {
@@ -61,7 +69,47 @@ export default function Result() {  const [params] = useSearchParams();
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, tokenParam, navigateState]);
+
+  /* Peta soal (tanpa kunci) untuk tinjauan jawaban. */
+  useEffect(() => {
+    let alive = true;
+    void fetchStudentQuestionMap().then((m) => {
+      if (alive) setQuestionMap(m);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /* Rekomendasi Agnes AI menyusul setelah grading instan (RACE-01). */
+  useEffect(() => {
+    if (!result || (result.ai_recommendation ?? "").length > 0) return;
+    let alive = true;
+    async function attach() {
+      if (!result) return;
+      setRecPending(true);
+      const text = await recommendLearning({
+        studentName: result.student_name,
+        score: result.score,
+        correctCount: result.correct_count,
+        wrongCount: result.wrong_count,
+        totalQuestions: result.total_questions,
+        indicators: result.indicator_summary_json ?? [],
+      });
+      try {
+        await attachRecommendation(result.id, result.token_used, text);
+      } catch {
+        /* tersimpan lokal saja; baris server dibiarkan tanpa rekomendasi */
+      }
+      if (alive) setResult({ ...result, ai_recommendation: text });
+      if (alive) setRecPending(false);
+    }
+    void attach();
+    return () => {
+      alive = false;
+    };
+  }, [result]);
 
   if (loading) {
     return (
@@ -196,7 +244,9 @@ export default function Result() {  const [params] = useSearchParams();
           <Reveal delay={100}>
             {recParts.length === 0 ? (
               <p className="text-lead-airy mt-8 text-white">
-                Rekomendasi belum tersedia untuk hasil ini.
+                {recPending
+                  ? "Rekomendasi belajar Agnes AI sedang disiapkan…"
+                  : "Rekomendasi belum tersedia untuk hasil ini."}
               </p>
             ) : (
               <div className="mt-8 flex flex-col gap-4">
@@ -224,7 +274,7 @@ export default function Result() {  const [params] = useSearchParams();
               >
                 <div className="flex items-start gap-4">
                   <span className="text-caption-strong mt-1 w-6 shrink-0 text-ink-48 tabular-nums">
-                    {row.number}
+                    {row.number || "·"}
                   </span>
                   <div className="grow">
                     <p className="text-body text-ink">{row.text}</p>
@@ -247,7 +297,7 @@ export default function Result() {  const [params] = useSearchParams();
                           {row.yourAnswer}
                         </span>
                       </p>
-                      {!row.isCorrect && (
+                      {!row.isCorrect && row.key && (
                         <p className="text-caption text-ink-48">
                           Kunci: <span className="text-ink">{row.key}</span>
                         </p>
@@ -349,27 +399,30 @@ interface ReviewRow {
   text: string;
   isCorrect: boolean;
   yourAnswer: string;
-  key: AnswerLetter;
+  key?: AnswerLetter;
 }
 
 function buildReviewRows(
   result: ResultRow,
-  questionMap: Map<string, QuestionRow>,
+  questionMap: Map<string, StudentQuestion>,
 ): ReviewRow[] {
-  // Baris tinjauan membaca map soal dari Peta Jawaban JSONB.
+  /* Benar/salah dan kunci datang dari grading server (answers_correct_json
+     + answers_key_json) — bank di klien tidak pernah memegang kunci. */
   const answerMap = result.answers_json ?? {};
+  const correctMap = result.answers_correct_json ?? {};
+  const keyMap = result.answers_key_json ?? {};
   const rows: ReviewRow[] = [];
 
   for (const [qid, letter] of Object.entries(answerMap)) {
     const q = questionMap.get(qid);
-    if (!q) continue;
-    const isCorrect = letter === q.correct_answer;
     rows.push({
-      number: q.question_number,
-      text: q.question_text,
-      isCorrect,
-      yourAnswer: `${letter}) ${optionText(q, letter as AnswerLetter)}`,
-      key: q.correct_answer,
+      number: q?.question_number ?? 0,
+      text: q?.question_text ?? "(Soal ini sudah tidak tersedia di bank.)",
+      isCorrect: correctMap[qid] === true,
+      yourAnswer: q
+        ? `${letter}) ${optionText(q, letter as AnswerLetter)}`
+        : letter,
+      key: keyMap[qid],
     });
   }
 

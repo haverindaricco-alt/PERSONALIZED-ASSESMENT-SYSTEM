@@ -13,13 +13,12 @@ import { useTimer } from "../../hooks/useTimer";
 import { useAntiCheat } from "../../hooks/useAntiCheat";
 import {
   errorMessage,
-  insertResult,
+  gradeAndSave,
 } from "../../lib/supabase";
 import {
   ANSWER_LETTERS,
   formatHMS,
   optionText,
-  summarizeAnswers,
 } from "../../lib/scoring";
 import {
   clearQuizBackup,
@@ -27,7 +26,6 @@ import {
   loadSession,
   saveAnswers,
 } from "../../lib/storage";
-import { recommendLearning } from "../../lib/agnes";
 import {
   STATUS_DONE,
   STATUS_TIMEOUT,
@@ -54,6 +52,9 @@ export default function Quiz() {
   const idxRef = useRef(idx);
   idxRef.current = idx;
   const submitLock = useRef(false);
+  /** Status pengerjaan dikunci dari jalur pertama: retry tidak mengubah
+      Waktu Habis / Pelanggaran menjadi SELESAI (RACE-02). */
+  const statusRef = useRef<string | null>(null);
 
   const advanceTimer = useRef<number | null>(null);
   const clearAdvance = useCallback(() => {
@@ -70,38 +71,29 @@ export default function Quiz() {
   /* ---------- Pengumpulan jawaban ---------- */
 
   const doSubmit = useCallback(
-    async (status: string) => {
+    async (status?: string) => {
       if (!session || submitLock.current) return;
       submitLock.current = true;
       clearAdvance();
       setSubmitting(true);
 
       try {
-        const summary = summarizeAnswers(session.questions, answersRef.current);
-        const recommendation = await recommendLearning({
-          studentName: session.studentName,
-          score: summary.score,
-          correctCount: summary.correctCount,
-          wrongCount: summary.wrongCount,
-          totalQuestions: summary.totalQuestions,
-          indicators: summary.indicators,
-        });
-
-        const resultId = await insertResult({
-          student_name: session.studentName,
-          token_used: session.token,
-          score: summary.score,
-          correct_count: summary.correctCount,
-          wrong_count: summary.wrongCount,
-          total_questions: summary.totalQuestions,
-          completion_status: status,
-          answers_json: answersRef.current,
-          indicator_summary_json: summary.indicators,
-          ai_recommendation: recommendation,
+        if (!statusRef.current) statusRef.current = status ?? STATUS_DONE;
+        /* Grading di server: hasil tersimpan cepat (< 1 s), kunci
+           jawaban tidak pernah dikirim ke browser, dan rekomendasi
+           Agnes menyusul di halaman hasil (RACE-01). */
+        const row = await gradeAndSave({
+          token: session.token,
+          student: session.studentName,
+          answers: answersRef.current,
+          status: statusRef.current,
         });
 
         clearQuizBackup();
-        navigate(`/student/result?id=${resultId}`, { replace: true });
+        navigate(
+          `/student/result?id=${row.id}&t=${encodeURIComponent(session.token)}`,
+          { state: { row }, replace: true },
+        );
       } catch (err) {
         submitLock.current = false;
         setSubmitting(false);
@@ -283,8 +275,8 @@ export default function Quiz() {
           <Loader2 className="size-8 animate-spin text-primary" />
           <p className="text-body-strong text-ink">Memproses hasil ujian</p>
           <p className="text-caption text-ink-48">
-            Jawabanmu disimpan dan rekomendasi belajar Agnes AI sedang
-            disiapkan. Jangan tutup halaman ini.
+            Jawabanmu sedang dinilai di server. Rekomendasi belajar dari
+            Agnes AI akan menyusul di halaman hasil.
           </p>
         </div>
       </Modal>
@@ -299,7 +291,7 @@ export default function Quiz() {
             koneksi, lalu coba kirim lagi.
           </p>
           <div className="mt-6 flex gap-3">
-            <Button variant="primary" onClick={() => doSubmit(STATUS_DONE)} className="flex-1">
+            <Button variant="primary" onClick={() => void doSubmit()} className="flex-1">
               <Repeat className="size-4" /> Coba Lagi
             </Button>
             <Button variant="ghost" onClick={() => setSubmitError(null)} className="flex-1">

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Keyboard, Loader2, Lock, Save, ShieldAlert, Timer } from "lucide-react";
 import {
@@ -12,16 +12,17 @@ import {
 import {
   ensureSupabaseConfigured,
   errorMessage,
-  fetchQuestions,
   fetchSettingsByToken,
+  fetchStudentQuestions,
 } from "../../lib/supabase";
 import { fisherYates } from "../../lib/scoring";
 import { saveSession } from "../../lib/storage";
-import type { QuestionRow, SettingsRow } from "../../types";
+import type { StudentQuestion, SettingsRow } from "../../types";
 
 interface PendingStart {
   settings: SettingsRow;
-  questions: QuestionRow[];
+  questions: StudentQuestion[];
+  studentName: string;
 }
 
 const RULES = [
@@ -55,16 +56,37 @@ export default function Entry() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingStart | null>(null);
   const [starting, setStarting] = useState(false);
+  /** Backoff percobaan token (SEC-07): setelah 3 gagal, berhenti 10 detik. */
+  const attemptRef = useRef(0);
+  const [lockUntil, setLockUntil] = useState(0);
+  const [, tick] = useState(0);
+
+  useEffect(() => {
+    if (lockUntil <= Date.now()) return;
+    const interval = window.setInterval(() => {
+      tick((c) => c + 1);
+      if (Date.now() >= lockUntil) {
+        window.clearInterval(interval);
+        setLockUntil(0);
+      }
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [lockUntil]);
+
+  const locked = Date.now() < lockUntil;
 
   async function validateAndPrepare(e: FormEvent) {
     e.preventDefault();
+    if (checking || locked) return; /*hindari double fetch (RACE-04) */
     setError(null);
 
-    if (name.trim().length < 2) {
+    const cleanName = name.trim().replace(/\s+/g, " ");
+    const tokenUpper = token.trim().toUpperCase();
+    if (cleanName.length < 2) {
       setError("Tulis nama lengkap minimal 2 karakter.");
       return;
     }
-    if (!token.trim()) {
+    if (!tokenUpper) {
       setError("Token ujian wajib diisi.");
       return;
     }
@@ -73,8 +95,8 @@ export default function Entry() {
     try {
       ensureSupabaseConfigured();
       const [settings, questions] = await Promise.all([
-        fetchSettingsByToken(token),
-        fetchQuestions(),
+        fetchSettingsByToken(tokenUpper),
+        fetchStudentQuestions(),
       ]);
 
       if (settings.status !== "AKTIF") {
@@ -87,8 +109,11 @@ export default function Entry() {
         throw new Error("Bank soal masih kosong. Hubungi pengawas.");
       }
 
-      setPending({ settings, questions });
+      attemptRef.current = 0;
+      setPending({ settings, questions, studentName: cleanName });
     } catch (err) {
+      attemptRef.current += 1;
+      if (attemptRef.current >= 3) setLockUntil(Date.now() + 10_000);
       setError(errorMessage(err));
     } finally {
       setChecking(false);
@@ -100,7 +125,7 @@ export default function Entry() {
     setStarting(true);
     const shuffled = fisherYates(pending.questions);
     saveSession({
-      studentName: name.trim(),
+      studentName: pending.studentName,
       token: pending.settings.token,
       durationMinutes: pending.settings.duration_minutes,
       deadlineMs: Date.now() + pending.settings.duration_minutes * 60_000,
@@ -151,7 +176,7 @@ export default function Entry() {
           <Button
             type="submit"
             variant="primary"
-            disabled={checking}
+            disabled={checking || locked}
             className="w-full"
           >
             {checking ? (

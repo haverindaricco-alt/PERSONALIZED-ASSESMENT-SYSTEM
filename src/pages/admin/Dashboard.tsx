@@ -11,8 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { SubNav } from "../../components/nav";
-import {
+import { SubNav } from "../../components/nav";import {
   Button,
   Card,
   Field,
@@ -22,12 +21,12 @@ import {
   selectClass,
   textareaClass,
 } from "../../components/ui";
-import { setAdminAuth } from "../../components/guards";
+import { supabase } from "../../lib/supabase";
 import {
   deleteQuestion,
   errorMessage,
   fetchFirstSettings,
-  fetchQuestions,
+  fetchQuestionsAdmin,
   fetchResults,
   insertQuestion,
   updateQuestion,
@@ -83,7 +82,6 @@ export default function AdminDashboard() {
   const [token, setToken] = useState("");
   const [status, setStatus] = useState<"AKTIF" | "TIDAK_AKTIF">("AKTIF");
   const [duration, setDuration] = useState(30);
-  const [adminPin, setAdminPin] = useState("");
   const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -102,7 +100,7 @@ export default function AdminDashboard() {
     try {
       const [s, qs, rs] = await Promise.all([
         fetchFirstSettings(),
-        fetchQuestions(),
+        fetchQuestionsAdmin(),
         fetchResults(),
       ]);
       setSettingsId(s?.id ?? null);
@@ -110,7 +108,6 @@ export default function AdminDashboard() {
         setToken(s.token);
         setStatus(s.status);
         setDuration(s.duration_minutes);
-        setAdminPin(s.admin_pin);
       }
       setQuestions(qs);
       setResults(rs);
@@ -136,7 +133,6 @@ export default function AdminDashboard() {
         token: token.trim().toUpperCase(),
         status,
         duration_minutes: duration,
-        admin_pin: adminPin.trim(),
       });
       setNotice({ text: "Pengaturan tersimpan.", ok: true });
       await loadAll();
@@ -192,6 +188,19 @@ export default function AdminDashboard() {
       return;
     }
 
+    /* BUG-03: nomor soal wajib unik — ditolak di klien sebelum menyentuh DB
+       (indeks unik di security-patch.sql tetap jadi pengaman akhir). */
+    if (
+      questions.some(
+        (q) => q.question_number === form.question_number && q.id !== form.id,
+      )
+    ) {
+      setFormError(
+        `Nomor soal ${form.question_number} sudah dipakai soal lain. Pilih nomor lain.`,
+      );
+      return;
+    }
+
     setSavingQuestion(true);
     try {
       const payload = {
@@ -234,9 +243,13 @@ export default function AdminDashboard() {
     }
   }
 
-  function logout() {
-    setAdminAuth(false);
-    navigate("/", { replace: true });
+  /** Sesi admin diakhiri lewat Supabase Auth: JWT dicabut di server. */
+  async function logout() {
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      navigate("/", { replace: true });
+    }
   }
 
   const optionValue = useCallback(
@@ -256,7 +269,7 @@ export default function AdminDashboard() {
       <SubNav
         title="Dashboard Admin"
         actions={
-          <Button variant="dark" onClick={logout}>
+          <Button variant="dark" onClick={() => void logout()}>
             <LogOut className="size-4" /> Keluar
           </Button>
         }
@@ -349,14 +362,6 @@ export default function AdminDashboard() {
                           />
                         </Field>
                       </div>
-
-                      <Field label="Kode PIN Admin">
-                        <input
-                          className={selectClass + " rounded-util"}
-                          value={adminPin}
-                          onChange={(e) => setAdminPin(e.target.value)}
-                        />
-                      </Field>
 
                       <Button
                         type="submit"
