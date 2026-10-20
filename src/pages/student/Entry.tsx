@@ -6,6 +6,7 @@ import {
   Card,
   Field,
   Modal,
+  PearlChip,
   inputClass,
 } from "../../components/ui";
 import {
@@ -163,55 +164,69 @@ export default function Entry() {
       </Card>
 
       {/* Modal konfirmasi aturan sebelum mulai */}
-      <Modal open={pending !== null} onClose={() => setPending(null)} dismissable={!starting}>
-        {pending && (
+      <Modal
+        open={pending !== null}
+        onClose={() => setPending(null)}
+        dismissable={!starting}
+        title="Aturan & Proteksi Ujian"
+        subtitle={
+          pending && (
+            <span className="flex flex-wrap items-center gap-2">
+              <PearlChip>
+                <Timer className="size-3.5 text-primary" />
+                {pending.settings.duration_minutes} menit
+              </PearlChip>
+              <PearlChip>{pending.questions.length} soal</PearlChip>
+              <PearlChip>
+                <span className="tracking-widest">{pending.settings.token}</span>
+              </PearlChip>
+            </span>
+          )
+        }
+        footer={
+          <div className="flex flex-col gap-3 sm:flex-row-reverse">
+            <Button
+              variant="primary"
+              onClick={startExam}
+              disabled={starting}
+              className="flex-1"
+            >
+              {starting ? "Menyiapkan kuis…" : "Saya Mengerti, Mulai"}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setPending(null)}
+              disabled={starting}
+              className="flex-1"
+            >
+              Batal
+            </Button>
+          </div>
+        }
+        finePrint={
           <>
-            <h2 className="text-display-md text-ink">
-              Aturan & Proteksi Ujian
-            </h2>
-            <p className="text-caption mt-2 text-ink-48">
-              {pending.settings.duration_minutes} menit,{" "}
-              {pending.questions.length} soal pilihan ganda, token{" "}
-              <span className="tracking-widest">{pending.settings.token}</span>.
-            </p>
-
-            <ul className="mt-6 flex flex-col gap-5">
-              {RULES.map((r) => (
-                <li key={r.title} className="flex gap-4">
-                  <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-pearl">
-                    <r.icon className="size-4.5 text-primary" strokeWidth={1.5} />
-                  </span>
-                  <div>
-                    <p className="text-body-strong text-ink">{r.title}</p>
-                    <p className="text-caption mt-1 text-ink-48">{r.body}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row-reverse">
-              <Button
-                variant="primary"
-                onClick={startExam}
-                disabled={starting}
-                className="flex-1"
-              >
-                {starting ? "Menyiapkan kuis…" : "Saya Mengerti, Mulai"}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => setPending(null)}
-                disabled={starting}
-                className="flex-1"
-              >
-                Batal
-              </Button>
-            </div>
-
-            <p className="text-micro mt-4 flex items-center gap-1.5 text-ink-48">
-              <Lock className="size-3" /> Fokus Lock aktif saat kamu menekan tombol Mulai.
-            </p>
+            <Lock className="size-3" /> Fokus Lock aktif saat kamu menekan tombol
+            Mulai.
           </>
+        }
+      >
+        {pending && (
+          <ul className="flex flex-col divide-y divide-hairline">
+            {RULES.map((r) => (
+              <li
+                key={r.title}
+                className="flex gap-4 py-5 first:pt-0 last:pb-0"
+              >
+                <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-pearl">
+                  <r.icon className="size-4.5 text-primary" strokeWidth={1.5} />
+                </span>
+                <div>
+                  <p className="text-body-strong text-ink">{r.title}</p>
+                  <p className="text-caption mt-1 text-ink-48">{r.body}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </Modal>
     </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Bot, Check, X, TimerOff } from "lucide-react";
-import { Card, IndicatorBar } from "../../components/ui";
+import { Card, IndicatorBar, Reveal } from "../../components/ui";
 import { GlobalNav } from "../../components/nav";
 import {
   ensureSupabaseConfigured,
@@ -93,6 +93,7 @@ export default function Result() {  const [params] = useSearchParams();
 
   const summary = result.indicator_summary_json ?? [];
   const kind = classifyCompletion(result.completion_status);
+  const recParts = buildRecommendationParts(result.ai_recommendation ?? "");
 
   return (
     <div className="min-h-[100dvh] bg-canvas">
@@ -134,13 +135,19 @@ export default function Result() {  const [params] = useSearchParams();
 
         <div className="mx-auto mt-8 grid max-w-md grid-cols-2 gap-4">
           <Card className="product-shadow p-5">
-            <p className="text-caption text-ink-48">Jawaban Benar</p>
+            <div className="flex items-center gap-1.5">
+              <Check className="size-4 text-ok" />
+              <p className="text-caption text-ink-48">Jawaban Benar</p>
+            </div>
             <p className="text-display-lg mt-1 text-ok tabular-nums">
               {result.correct_count}
             </p>
           </Card>
           <Card className="product-shadow p-5">
-            <p className="text-caption text-ink-48">Jawaban Salah</p>
+            <div className="flex items-center gap-1.5">
+              <X className="size-4 text-bad" />
+              <p className="text-caption text-ink-48">Jawaban Salah</p>
+            </div>
             <p className="text-display-lg mt-1 text-bad tabular-nums">
               {result.wrong_count}
             </p>
@@ -150,7 +157,7 @@ export default function Result() {  const [params] = useSearchParams();
 
       {/* Tile putih: peta penguasaan indikator */}
       <section className="px-6 py-16 sm:px-8">
-        <div className="mx-auto max-w-2xl">
+        <Reveal className="mx-auto max-w-2xl">
           <h2 className="text-display-md text-ink">Peta Penguasaan Indikator</h2>
           <p className="text-caption mt-2 text-ink-48">
             Hijau 75% ke atas, kuning 50 sampai 74%, merah di bawah 50%.
@@ -166,7 +173,7 @@ export default function Result() {  const [params] = useSearchParams();
               ))
             )}
           </div>
-        </div>
+        </Reveal>
       </section>
 
       {/* Tile gelap: rekomendasi Agnes AI */}
@@ -186,36 +193,28 @@ export default function Result() {  const [params] = useSearchParams();
             </div>
           </div>
 
-          <div className="mt-8 flex flex-col gap-5">
-            {(result.ai_recommendation ?? "")
-              .split("\n")
-              .map((l) => l.trim())
-              .filter((l) => l.length > 0)
-              .map((line, i) => (
-                <p
-                  key={i}
-                  className={
-                    /^\d\)/.test(line)
-                      ? "text-lead -indent-1 text-white/95"
-                      : "text-lead-airy text-white"
-                  }
-                >
-                  {line}
-                </p>
-              ))}
-            {(result.ai_recommendation ?? "").length === 0 && (
-              <p className="text-lead-airy text-white">
+          <Reveal delay={100}>
+            {recParts.length === 0 ? (
+              <p className="text-lead-airy mt-8 text-white">
                 Rekomendasi belum tersedia untuk hasil ini.
               </p>
+            ) : (
+              <div className="mt-8 flex flex-col gap-4">
+                {recParts.map((part, i) => (
+                  <RecommendationRow key={i} part={part} />
+                ))}
+              </div>
             )}
-          </div>
+          </Reveal>
         </div>
       </section>
 
       {/* Tile putih: tinjauan jawaban */}
       <section className="px-6 py-16 sm:px-8">
         <div className="mx-auto max-w-2xl">
-          <h2 className="text-display-md text-ink">Tinjauan Jawaban</h2>
+          <Reveal>
+            <h2 className="text-display-md text-ink">Tinjauan Jawaban</h2>
+          </Reveal>
 
           <div className="mt-8 flex flex-col">
             {buildReviewRows(result, questionMap).map((row) => (
@@ -269,6 +268,78 @@ export default function Result() {  const [params] = useSearchParams();
       </section>
     </div>
   );
+}
+
+/* ---------- Render rekomendasi ---------- */
+
+/**
+ * Satu baris rekomendasi dipetakan ke tiga bentuk tampilan:
+ * - "panel": bagian naratif (Kekuatan/Fokus) dengan chip label di atas
+ * - "step":  langkah aksi (Langkah 1-3 atau "1)" legacy) dengan nomor lingkar
+ * - "prose": teks bebas gaya lama, dirender apa adanya
+ */
+interface RecPart {
+  kind: "panel" | "step" | "prose";
+  label?: string;
+  step?: number;
+  text: string;
+}
+
+const LABELED_LINE_RE = /^(Kekuatan|Fokus|Langkah ([1-3])):\s*(.*)$/;
+const LEGACY_STEP_RE = /^([1-3])\)\s*(.*)$/;
+
+function buildRecommendationParts(model: string): RecPart[] {
+  const parts: RecPart[] = [];
+  for (const line of model.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const labeled = LABELED_LINE_RE.exec(trimmed);
+    if (labeled) {
+      parts.push({
+        kind: labeled[1] === "Kekuatan" || labeled[1] === "Fokus" ? "panel" : "step",
+        label: labeled[1],
+        step: labeled[2] ? Number(labeled[2]) : undefined,
+        text: labeled[3].trim(),
+      });
+      continue;
+    }
+    const legacy = LEGACY_STEP_RE.exec(trimmed);
+    if (legacy) {
+      parts.push({ kind: "step", step: Number(legacy[1]), text: legacy[2].trim() });
+      continue;
+    }
+    parts.push({ kind: "prose", text: trimmed });
+  }
+  return parts;
+}
+
+const chipLabelClass =
+  "inline-flex items-center rounded-chip bg-white/10 px-3.5 py-1.5 text-caption-strong text-white/80";
+
+function RecommendationRow({ part }: { part: RecPart }) {
+  if (!part.text) return null;
+
+  if (part.kind === "panel") {
+    return (
+      <div className="rounded-card border border-white/10 bg-white/5 p-5 sm:p-6">
+        <span className={chipLabelClass}>{part.label}</span>
+        <p className="text-body mt-3 text-white/90">{part.text}</p>
+      </div>
+    );
+  }
+
+  if (part.kind === "step") {
+    return (
+      <div className="flex items-start gap-4 rounded-card border border-white/10 bg-white/5 p-5 sm:p-6 sm:gap-5">
+        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-caption-strong text-link-dark tabular-nums">
+          {part.step ?? ""}
+        </span>
+        <p className="text-body text-white/90">{part.text}</p>
+      </div>
+    );
+  }
+
+  return <p className="text-lead-airy text-white">{part.text}</p>;
 }
 
 /* ---------- Utilitas tinjauan ---------- */
