@@ -66,7 +66,7 @@ export default function Result() {  const [params] = useSearchParams();
   if (loading) {
     return (
       <div className="min-h-[100dvh] bg-canvas">
-        <GlobalNav brand="Asesmen Diagnostik" />
+        <GlobalNav brand="Personalized Assessment" />
         <div className="flex flex-col items-center justify-center py-40">
           <div className="h-40 w-72 animate-pulse rounded-card bg-parchment" />
           <div className="mt-8 h-4 w-56 animate-pulse rounded-pill bg-parchment" />
@@ -78,7 +78,7 @@ export default function Result() {  const [params] = useSearchParams();
   if (!result) {
     return (
       <div className="min-h-[100dvh] bg-canvas">
-        <GlobalNav brand="Asesmen Diagnostik" />
+        <GlobalNav brand="Personalized Assessment" />
         <div className="mx-auto flex max-w-md flex-col items-center px-6 py-40 text-center">
           <p className="text-body-strong text-ink">
             {error ?? "Hasil tidak ditemukan."}
@@ -97,7 +97,7 @@ export default function Result() {  const [params] = useSearchParams();
 
   return (
     <div className="min-h-[100dvh] bg-canvas">
-      <GlobalNav brand="Asesmen Diagnostik" />
+      <GlobalNav brand="Personalized Assessment" />
 
       {/* Tile gelap: skor utama */}
       <section className="bg-tile-1 px-6 pb-14 pt-16 text-center sm:px-8">

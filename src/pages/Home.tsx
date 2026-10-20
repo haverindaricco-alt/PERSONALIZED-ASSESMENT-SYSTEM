@@ -75,7 +75,7 @@ export default function Home() {
         <div className="relative mx-auto flex max-w-3xl flex-col items-center">
           <Reveal className="flex flex-col items-center">
             <h1 className="text-hero-display max-w-[820px] text-balance text-ink">
-              Asesmen Diagnostik Online
+              Personalized Assessment System
             </h1>
             <p className="text-lead-airy mt-4 max-w-[560px] text-ink-80">
               Kuis pilihan ganda yang aman, cepat, dan dilengkapi rekomendasi
@@ -223,7 +223,7 @@ export default function Home() {
           <div className="mt-16 flex flex-col gap-8 border-t border-hairline pt-10 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-caption-strong text-ink-80">
-                Asesmen Diagnostik Online
+                Personalized Assessment System
               </p>
               <p className="text-fine-print mt-2 max-w-[420px] text-ink-48">
                 Didukung Supabase untuk penyimpanan pembelajaran dan Agnes AI
@@ -268,7 +268,7 @@ function AnchorBar() {
       className="frosted sticky top-0 z-40 flex h-12 items-center justify-between gap-6 border-b border-hairline px-5 sm:h-[52px] sm:px-8"
     >
       <span className="hidden text-tagline text-ink sm:block">
-        Asesmen Diagnostik
+        Personalized Assessment
       </span>
       <div className="mx-auto flex items-center gap-6 sm:gap-8">
         {SUB_LINKS.map((l) => (

@@ -1,4 +1,4 @@
-# Asesmen Diagnostik & Ujian Mandiri Online
+# Personalized Assessment System
 
 Aplikasi ujian pilihan ganda berbasis web dengan Focus Lock anti-cheat,
 timer otomatis, backup jawaban ke localStorage, dan rekomendasi belajar
