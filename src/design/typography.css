@@ -1,0 +1,140 @@
+/* ============================================================
+   Ladder tipografi Apple (SF Pro Display untuk judul,
+   SF Pro Text untuk body). Ukuran final & tracking literal.
+   Responsif mengikuti perilaku apple.com.
+   ============================================================ */
+
+.text-hero-display {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1.07;
+  letter-spacing: -0.28px;
+}
+@media (max-width: 1068px) {
+  .text-hero-display { font-size: 40px; }
+}
+@media (max-width: 640px) {
+  .text-hero-display { font-size: 34px; }
+}
+@media (max-width: 419px) {
+  .text-hero-display { font-size: 28px; }
+}
+
+.text-display-lg {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+@media (max-width: 640px) {
+  .text-display-lg { font-size: 28px; }
+}
+
+.text-display-md {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.374px;
+}
+@media (max-width: 640px) {
+  .text-display-md { font-size: 26px; }
+}
+
+.text-lead {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1.14;
+  letter-spacing: 0.196px;
+}
+@media (max-width: 640px) {
+  .text-lead { font-size: 22px; }
+}
+
+.text-lead-airy {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1.5;
+}
+@media (max-width: 640px) {
+  .text-lead-airy { font-size: 19px; }
+}
+
+.text-tagline {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.19;
+  letter-spacing: 0.231px;
+}
+
+.text-body-strong {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.24;
+  letter-spacing: -0.374px;
+}
+
+.text-body {
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+}
+
+.text-dense-link {
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 2.41;
+}
+
+.text-caption {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.43;
+  letter-spacing: -0.224px;
+}
+
+.text-caption-strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.29;
+  letter-spacing: -0.224px;
+}
+
+.text-btn-large {
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.text-btn-utility {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.29;
+  letter-spacing: -0.224px;
+}
+
+.text-fine-print {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: -0.12px;
+}
+
+.text-micro {
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: -0.08px;
+}
+
+.text-nav-link {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.12px;
+}
