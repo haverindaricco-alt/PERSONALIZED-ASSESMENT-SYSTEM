@@ -1,12 +1,3 @@
-import type {
-  AnswerMap,
-  AnswerLetter,
-  IndicatorSummary,
-  QuestionRow,
-  StudentQuestion,
-} from "../types";
-import { ANSWER_LETTERS } from "../types";
-
 /** Pengacakan Fisher-Yates (tidak memutasi array sumber). */
 export function fisherYates<T>(source: T[]): T[] {
   const arr = [...source];
@@ -15,68 +6,6 @@ export function fisherYates<T>(source: T[]): T[] {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
-}
-
-/** Menerima StudentQuestion juga (QuestionRow extends StudentQuestion). */
-export function optionText(
-  question: StudentQuestion,
-  letter: AnswerLetter,
-): string {
-  const key = `option_${letter.toLowerCase()}` as keyof StudentQuestion;
-  return String(question[key]);
-}
-
-export interface ScoreSummary {
-  score: number;
-  correctCount: number;
-  wrongCount: number;
-  totalQuestions: number;
-  indicators: IndicatorSummary[];
-}
-
-/**
- * Hitung skor (skala 0-100), jumlah benar/salah, dan peta penguasaan
- * per indikator. Soal tidak dijawab dihitung salah.
- */
-export function summarizeAnswers(
-  questions: QuestionRow[],
-  answers: AnswerMap,
-): ScoreSummary {
-  let correctCount = 0;
-  const indicatorMap = new Map<string, IndicatorSummary>();
-
-  for (const q of questions) {
-    const isCorrect = answers[q.id] === q.correct_answer;
-    if (isCorrect) correctCount += 1;
-
-    const entry = indicatorMap.get(q.indicator) ?? {
-      indicator: q.indicator,
-      total: 0,
-      correct: 0,
-      percentage: 0,
-    };
-    entry.total += 1;
-    if (isCorrect) entry.correct += 1;
-    entry.percentage = entry.total > 0
-      ? (entry.correct / entry.total) * 100
-      : 0;
-    indicatorMap.set(q.indicator, entry);
-  }
-
-  const totalQuestions = questions.length;
-  const wrongCount = totalQuestions - correctCount;
-  const score =
-    totalQuestions > 0
-      ? Math.round((correctCount / totalQuestions) * 100 * 100) / 100
-      : 0;
-
-  return {
-    score,
-    correctCount,
-    wrongCount,
-    totalQuestions,
-    indicators: [...indicatorMap.values()],
-  };
 }
 
 export type Mastery = "green" | "yellow" | "red";
@@ -119,5 +48,3 @@ export function formatIdDateTime(iso: string): string {
 export function formatScore(n: number): string {
   return n.toLocaleString("id-ID", { maximumFractionDigits: 2 });
 }
-
-export { ANSWER_LETTERS };

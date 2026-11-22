@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Loader2, Lock, Mail, ShieldCheck } from "lucide-react";
 import { supabase, errorMessage } from "../../lib/supabase";
 import { Button, Card, Field, inputClass } from "../../components/ui";
+import { MinimalNav } from "../../components/nav";
 
 export default function AdminLogin() {
   const navigate = useNavigate();
@@ -36,8 +37,9 @@ export default function AdminLogin() {
   }
 
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-parchment px-4 py-10">
-      <Card className="w-full max-w-sm p-6 sm:p-8">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-parchment px-4 py-20">
+      <MinimalNav />
+      <Card className="w-full max-w-sm p-6 sm:p-8 mt-6">
         <span className="flex size-11 items-center justify-center rounded-full bg-pearl">
           <Lock className="size-5 text-primary" strokeWidth={1.5} />
         </span>

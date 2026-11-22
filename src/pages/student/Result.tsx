@@ -2,18 +2,18 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Bot, Check, X, TimerOff } from "lucide-react";
 import { Card, IndicatorBar, Reveal } from "../../components/ui";
-import { GlobalNav } from "../../components/nav";
+import { AppNavbar } from "../../components/nav";
+import { MathText } from "../../components/MathText";
 import {
   errorMessage,
   fetchStudentQuestionMap,
   getResultForStudent,
   attachRecommendation,
 } from "../../lib/supabase";
-import { formatIdDateTime, formatScore, optionText } from "../../lib/scoring";
+import { formatIdDateTime, formatScore } from "../../lib/scoring";
 import { recommendLearning } from "../../lib/agnes";
 import {
   classifyCompletion,
-  type AnswerLetter,
   type ResultRow,
   type StudentQuestion,
 } from "../../types";
@@ -114,7 +114,7 @@ export default function Result() {
   if (loading) {
     return (
       <div className="min-h-[100dvh] bg-canvas">
-        <GlobalNav brand="Personalized Assessment" />
+        <AppNavbar title="Hasil Ujian" badge="Memuat" />
         <div className="flex flex-col items-center justify-center py-40">
           <div className="h-40 w-72 animate-pulse rounded-card bg-parchment" />
           <div className="mt-8 h-4 w-56 animate-pulse rounded-pill bg-parchment" />
@@ -126,7 +126,7 @@ export default function Result() {
   if (!result) {
     return (
       <div className="min-h-[100dvh] bg-canvas">
-        <GlobalNav brand="Personalized Assessment" />
+        <AppNavbar title="Hasil Ujian" />
         <div className="mx-auto flex max-w-md flex-col items-center px-6 py-40 text-center">
           <p className="text-body-strong text-ink">
             {error ?? "Hasil tidak ditemukan."}
@@ -145,10 +145,21 @@ export default function Result() {
 
   return (
     <div className="min-h-[100dvh] bg-canvas">
-      <GlobalNav brand="Personalized Assessment" />
+      <AppNavbar
+        title="Hasil Ujian"
+        badge="Laporan"
+        actions={
+          <Link
+            to="/student/entry"
+            className="press focus-ring inline-flex items-center rounded-full bg-primary px-3.5 py-1.5 text-caption-strong text-white hover:bg-focus shadow-xs"
+          >
+            Ujian Baru
+          </Link>
+        }
+      />
 
       {/* Tile gelap: skor utama */}
-      <section className="bg-tile-1 px-6 pb-14 pt-16 text-center sm:px-8">
+      <section className="bg-tile-1 px-6 pb-14 pt-24 sm:pt-28 text-center sm:px-8">
         <p className="text-caption-strong text-white/60">
           Hasil Ujian {formatIdDateTime(result.created_at)}
         </p>
@@ -291,15 +302,14 @@ export default function Result() {
                       </span>
                       <p className="text-caption text-ink-48">
                         Jawabanmu:{" "}
-                        <span
+                        <MathText
+                          text={row.yourAnswer}
                           className={row.isCorrect ? "text-ok" : "text-bad"}
-                        >
-                          {row.yourAnswer}
-                        </span>
+                        />
                       </p>
                       {!row.isCorrect && row.key && (
                         <p className="text-caption text-ink-48">
-                          Kunci: <span className="text-ink">{row.key}</span>
+                          Kunci: <MathText text={row.key} className="text-ink" />
                         </p>
                       )}
                     </div>
@@ -399,7 +409,7 @@ interface ReviewRow {
   text: string;
   isCorrect: boolean;
   yourAnswer: string;
-  key?: AnswerLetter;
+  key?: string;
 }
 
 function buildReviewRows(
@@ -413,15 +423,13 @@ function buildReviewRows(
   const keyMap = result.answers_key_json ?? {};
   const rows: ReviewRow[] = [];
 
-  for (const [qid, letter] of Object.entries(answerMap)) {
+  for (const [qid, answer] of Object.entries(answerMap)) {
     const q = questionMap.get(qid);
     rows.push({
       number: q?.question_number ?? 0,
       text: q?.question_text ?? "(Soal ini sudah tidak tersedia di bank.)",
       isCorrect: correctMap[qid] === true,
-      yourAnswer: q
-        ? `${letter}) ${optionText(q, letter as AnswerLetter)}`
-        : letter,
+      yourAnswer: answer.trim() || "—",
       key: keyMap[qid],
     });
   }

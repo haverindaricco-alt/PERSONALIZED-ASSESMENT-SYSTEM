@@ -5,8 +5,8 @@ import type { AnswerMap, QuizSession } from "../types";
    Jawaban siswa tetap aman saat halaman ter-refresh.
    ============================================================ */
 
-const SESSION_KEY = "pas.session.v1";
-const ANSWERS_KEY = "pas.answers.v1";
+const SESSION_KEY = "pas.session.v2";
+const ANSWERS_KEY = "pas.answers.v2";
 
 function read<T>(key: string): T | null {
   try {
@@ -25,9 +25,9 @@ function write(key: string, value: unknown): void {
   }
 }
 
-/** Proyeksi soal ke kolom aman saja. Sesi dari aplikasi versi lama bisa
-    membawa `correct_answer` di localStorage — dibuang di sini (SEC-06)
-    sehingga bank di penyimpanan tidak pernah memegang kunci jawaban. */
+/** Proyeksi soal ke kolom aman saja. Kunci jawaban tidak pernah ikut
+    tersimpan di localStorage (SEC-06). Kunci storage v2 memastikan sesi
+    pilihan ganda lama tidak terbaca sebagai jawaban isian. */
 function sanitizeQuestions(list: unknown[]): QuizSession["questions"] {
   return list
     .filter((q): q is Record<string, unknown> => !!q && typeof q === "object")
@@ -35,11 +35,6 @@ function sanitizeQuestions(list: unknown[]): QuizSession["questions"] {
       id: String(q.id ?? ""),
       question_number: Number(q.question_number ?? 0),
       question_text: String(q.question_text ?? ""),
-      option_a: String(q.option_a ?? ""),
-      option_b: String(q.option_b ?? ""),
-      option_c: String(q.option_c ?? ""),
-      option_d: String(q.option_d ?? ""),
-      option_e: String(q.option_e ?? ""),
       indicator: String(q.indicator ?? ""),
     }))
     .filter((q) => q.id && q.question_text);

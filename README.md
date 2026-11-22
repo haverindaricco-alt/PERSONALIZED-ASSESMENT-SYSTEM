@@ -1,6 +1,6 @@
 # Personalized Assessment System
 
-Aplikasi ujian pilihan ganda berbasis web dengan Focus Lock anti-cheat,
+Aplikasi asesmen isian berbasis web dengan Focus Lock anti-cheat,
 timer otomatis, backup jawaban ke localStorage, rekomendasi belajar
 bertenaga AI (Agnes AI, model `agnes-2.5-flash`), dan penilaian yang
 dilakukan sepenuhnya di server.
@@ -18,13 +18,15 @@ dilakukan sepenuhnya di server.
 ## Setup
 
 1. **Database** — Buka Supabase Dashboard > SQL Editor:
-   - Database baru: jalankan seluruh isi `supabase/schema.sql` terlebih
-     dahulu, lalu `supabase/security-patch.sql`.
-   - Database yang sudah ada dari versi lama: cukup jalankan
+   - Database baru: jalankan `supabase/schema.sql`, lalu
      `supabase/security-patch.sql`.
-   Patch ini memasang RLS ketat, view soal tanpa kunci jawaban, fungsi
-   penilaian server-side (`grade_and_save`, `attach_recommendation`,
-   `get_result_for_student`), dan menghapus kolom `admin_pin`.
+   - Database versi pilihan ganda: jalankan
+     `supabase/migration-fill-in.sql` **dulu** (mengosongkan bank soal),
+     lalu `supabase/security-patch.sql`.
+   Patch ini memasang RLS ketat, view soal tanpa kunci, fungsi
+   `canonical_answer` untuk menyetarakan bentuk jawaban, serta RPC
+   `grade_and_save`, `attach_recommendation`, dan
+   `get_result_for_student`.
 2. **Akun admin** — Supabase Dashboard > Authentication > Users >
    Add user: buat satu user (email + password). Akun ini dipakai untuk
    login di halaman `/admin/login`. Tidak ada lagi PIN bawaan.
@@ -77,26 +79,28 @@ npm run dev
 - **Portal siswa**: nama + token (dinormalisasi huruf besar), validasi
   status `AKTIF`, modal aturan sebelum mulai, jeda wajib 10 detik
   setelah tiga gagal validasi.
-- **Quiz engine**: urutan soal diacak Fisher-Yates per sesi, opsi A-E
-  lewat klik atau keyboard, auto-advance 300 ms, timer HH:MM:SS dengan
-  auto submit, jawaban tersimpan ke localStorage (tahan refresh).
-- **Penilaian di server**: jawaban dikirim ke RPC `grade_and_save`;
-  skor, benar/salah, dan peta indikator dihitung oleh database. Kunci
-  jawaban tidak pernah dikirim ke browser (view `questions_public`
-  bahkan tidak memuat kolomnya), dan hasil tersimpan dalam hitungan
-  detik walau Agnes AI lambat.
+- **Quiz engine**: urutan soal diacak Fisher-Yates per sesi, jawaban
+  diketik sebagai teks, timer HH:MM:SS dengan auto submit, jawaban
+  tersimpan ke localStorage (tahan refresh). Enter berpindah soal.
+- **Penilaian di server**: jawaban teks dikirim ke RPC `grade_and_save`
+  dan dibandingkan dengan kunci rumus serta alternatifnya setelah
+  dibakukan oleh `canonical_answer`. Huruf besar/kecil dan spasi
+  diabaikan; bentuk setara seperti `1/2`, `2/4`, dan `0,5` dianggap sama
+  (presisi tiga angka desimal). Kunci tidak pernah dikirim ke browser,
+  dan hasil tersimpan walau Agnes AI lambat.
 - **Hasil & diagnostik**: nilai skala 100, peta penguasaan indikator
   (hijau >= 75, kuning 50-74, merah < 50), rekomendasi belajar Agnes AI
   yang menyusul setelah hasil tersimpan, tinjauan jawaban lengkap
-  dengan kunci. Link hasil hanya bisa dibuka dengan token ujian yang
-  cocok.
+  dengan kunci rumus. Link hasil hanya bisa dibuka dengan token ujian
+  yang cocok.
 - **Anti-cheat Focus Lock**: `visibilitychange` dan `blur` memicu force
   submit dengan status `DIHENTIKAN - Pelanggaran Fokus Halaman`; waktu
   habis menjadi `DIHENTIKAN - Waktu Habis`. Status yang tercatat lebih
   dulu tidak dapat ditimpa jalur lain.
 - **Admin**: login email + password lewat Supabase Auth (guard
   `RequireAdmin` memvalidasi sesi JWT), pengaturan token/status/durasi,
-  CRUD bank soal dengan nomor unik, rekap nilai seluruh siswa.
+  CRUD bank soal dengan nomor unik, kunci rumus, dan alternatif jawaban,
+  rekap nilai seluruh siswa.
 
 ## Catatan keamanan
 

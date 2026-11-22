@@ -6,9 +6,9 @@ import {
   Card,
   Field,
   Modal,
-  PearlChip,
   inputClass,
 } from "../../components/ui";
+import { MinimalNav } from "../../components/nav";
 import {
   ensureSupabaseConfigured,
   errorMessage,
@@ -34,7 +34,7 @@ const RULES = [
   {
     icon: Keyboard,
     title: "Pintasan keyboard",
-    body: "Pilih jawaban dengan tombol A sampai E atau klik di layar. Enter melaju ke soal berikutnya.",
+    body: "Ketik jawaban akhir pada kolom isian. Huruf besar dan spasi tidak dibedakan. Gunakan tombol Pecahan untuk menyisipkan pembilang/penyebut. Enter membuat baris baru, Ctrl+Enter melaju ke soal berikutnya.",
   },
   {
     icon: ShieldAlert,
@@ -56,10 +56,34 @@ export default function Entry() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingStart | null>(null);
   const [starting, setStarting] = useState(false);
+  const [ruleStep, setRuleStep] = useState(0);
   /** Backoff percobaan token (SEC-07): setelah 3 gagal, berhenti 10 detik. */
   const attemptRef = useRef(0);
   const [lockUntil, setLockUntil] = useState(0);
   const [, tick] = useState(0);
+
+  /* Navigasi keyboard slider aturan ketika modal terbuka */
+  useEffect(() => {
+    if (!pending) {
+      setRuleStep(0);
+      return;
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "ArrowRight") {
+        setRuleStep((prev) => Math.min(RULES.length - 1, prev + 1));
+      } else if (e.key === "ArrowLeft") {
+        setRuleStep((prev) => Math.max(0, prev - 1));
+      } else if (e.key === "Enter" && !starting) {
+        if (ruleStep < RULES.length - 1) {
+          setRuleStep((prev) => prev + 1);
+        } else {
+          void startExam();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [pending, ruleStep, starting]);
 
   useEffect(() => {
     if (lockUntil <= Date.now()) return;
@@ -135,8 +159,9 @@ export default function Entry() {
   }
 
   return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-parchment px-4 py-10">
-      <Card className="w-full max-w-md p-6 sm:p-8">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-parchment px-4 py-20">
+      <MinimalNav />
+      <Card className="w-full max-w-md p-6 sm:p-8 mt-6">
         <h1 className="text-display-md text-ink">Masuk Ujian</h1>
         <p className="text-caption mt-2 text-ink-48">
           Nama dan token dibagikan oleh pengawas ujian.
@@ -188,70 +213,141 @@ export default function Entry() {
         </form>
       </Card>
 
-      {/* Modal konfirmasi aturan sebelum mulai */}
+      {/* Modal konfirmasi aturan sebelum mulai (Compact Step-by-Step Slider) */}
       <Modal
         open={pending !== null}
         onClose={() => setPending(null)}
         dismissable={!starting}
+        maxWidth="max-w-md"
         title="Aturan & Proteksi Ujian"
         subtitle={
           pending && (
-            <span className="flex flex-wrap items-center gap-2">
-              <PearlChip>
-                <Timer className="size-3.5 text-primary" />
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-full bg-pearl border border-hairline px-2.5 py-0.5 text-[11px] font-medium text-ink-80">
+                <Timer className="size-3 text-primary" />
                 {pending.settings.duration_minutes} menit
-              </PearlChip>
-              <PearlChip>{pending.questions.length} soal</PearlChip>
-              <PearlChip>
-                <span className="tracking-widest">{pending.settings.token}</span>
-              </PearlChip>
-            </span>
+              </span>
+              <span className="inline-flex items-center rounded-full bg-pearl border border-hairline px-2.5 py-0.5 text-[11px] font-medium text-ink-80">
+                {pending.questions.length} soal
+              </span>
+              <span className="inline-flex items-center rounded-full bg-pearl border border-hairline px-2.5 py-0.5 text-[11px] font-mono font-medium text-primary tracking-wider">
+                {pending.settings.token}
+              </span>
+            </div>
           )
         }
         footer={
-          <div className="flex flex-col gap-3 sm:flex-row-reverse">
-            <Button
-              variant="primary"
-              onClick={startExam}
-              disabled={starting}
-              className="flex-1"
-            >
-              {starting ? "Menyiapkan kuis…" : "Saya Mengerti, Mulai"}
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => setPending(null)}
-              disabled={starting}
-              className="flex-1"
-            >
-              Batal
-            </Button>
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center justify-between gap-3">
+              {ruleStep === 0 ? (
+                <Button
+                  variant="ghost"
+                  onClick={() => setPending(null)}
+                  disabled={starting}
+                  className="flex-1 sm:flex-initial"
+                >
+                  Batal
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  onClick={() => setRuleStep((prev) => prev - 1)}
+                  disabled={starting}
+                  className="flex-1 sm:flex-initial"
+                >
+                  &larr; Kembali
+                </Button>
+              )}
+
+              {ruleStep < RULES.length - 1 ? (
+                <Button
+                  variant="primary"
+                  onClick={() => setRuleStep((prev) => prev + 1)}
+                  disabled={starting}
+                  className="flex-1 sm:flex-initial"
+                >
+                  Lanjut &rarr;
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  onClick={startExam}
+                  disabled={starting}
+                  className="flex-1 sm:flex-initial"
+                >
+                  {starting ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="size-4 animate-spin" /> Menyiapkan…
+                    </span>
+                  ) : (
+                    "Saya Mengerti, Mulai"
+                  )}
+                </Button>
+              )}
+            </div>
+
+            {ruleStep < RULES.length - 1 && (
+              <div className="flex justify-center pt-0.5">
+                <button
+                  type="button"
+                  onClick={startExam}
+                  disabled={starting}
+                  className="press focus-ring rounded-full px-2 py-0.5 text-[11px] font-medium text-ink-48 hover:text-ink transition-colors"
+                >
+                  Lewati langsung ke Mulai &rarr;
+                </button>
+              </div>
+            )}
           </div>
         }
         finePrint={
           <>
-            <Lock className="size-3" /> Fokus Lock aktif saat kamu menekan tombol
-            Mulai.
+            <Lock className="size-3" /> Focus Lock aktif saat kamu menekan tombol Mulai.
           </>
         }
       >
         {pending && (
-          <ul className="flex flex-col divide-y divide-hairline">
-            {RULES.map((r) => (
-              <li
-                key={r.title}
-                className="flex gap-4 py-5 first:pt-0 last:pb-0"
-              >
-                <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-pearl">
-                  <r.icon className="size-4.5 text-primary" strokeWidth={1.5} />
-                </span>
-                <div>
-                  <p className="text-body-strong text-ink">{r.title}</p>
-                  <p className="text-caption mt-1 text-ink-48">{r.body}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col items-center text-center py-2 select-none">
+            {/* Step Counter Badge */}
+            <span className="inline-flex items-center rounded-full bg-pearl border border-hairline/80 px-2.5 py-0.5 text-[11px] font-medium text-ink-48 tracking-wider">
+              Langkah {ruleStep + 1} dari {RULES.length}
+            </span>
+
+            {/* Icon */}
+            <div className="mt-4 flex size-14 items-center justify-center rounded-full bg-pearl border border-hairline text-primary shadow-2xs">
+              {(() => {
+                const Icon = RULES[ruleStep].icon;
+                return <Icon className="size-7" strokeWidth={1.5} />;
+              })()}
+            </div>
+
+            {/* Title */}
+            <h3 className="text-body-strong text-[17px] font-semibold text-ink mt-3">
+              {RULES[ruleStep].title}
+            </h3>
+
+            {/* Body */}
+            <p className="text-caption text-ink-80 mt-1.5 max-w-xs leading-relaxed">
+              {RULES[ruleStep].body}
+            </p>
+
+            {/* Interactive Dots Navigation */}
+            <div className="mt-5 flex items-center justify-center gap-1.5">
+              {RULES.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setRuleStep(i)}
+                  aria-label={`Buka langkah ${i + 1}`}
+                  className={`press focus-ring transition-all duration-200 rounded-full ${
+                    i === ruleStep
+                      ? "w-6 h-2 bg-primary"
+                      : "w-2 h-2 bg-hairline hover:bg-ink-48"
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
         )}
       </Modal>
     </div>

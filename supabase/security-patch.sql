@@ -26,6 +26,8 @@ alter table public.settings drop column if exists admin_pin;
 -- Baca (kolom terbatas) untuk anon; tulis hanya untuk authenticated.
 drop policy if exists "settings_select" on public.settings;
 drop policy if exists "settings_update" on public.settings;
+drop policy if exists "settings_read_anon" on public.settings;
+drop policy if exists "settings_admin_all" on public.settings;
 revoke all on public.settings from anon, authenticated;
 grant select (id, token, status, duration_minutes, created_at)
   on public.settings to anon;
@@ -40,11 +42,12 @@ create policy "settings_admin_all"
 
 -- 2. QUESTIONS -------------------------------------------------
 -- Tamu tidak punya akses langsung ke tabel soal (SEC-02);
--- siswa membaca lewat view tanpa kunci jawaban (SEC-06).
+-- siswa membaca lewat view tanpa kunci/rumus jawaban (SEC-06).
 drop policy if exists "questions_select" on public.questions;
 drop policy if exists "questions_insert" on public.questions;
 drop policy if exists "questions_update" on public.questions;
 drop policy if exists "questions_delete" on public.questions;
+drop policy if exists "questions_admin_all" on public.questions;
 revoke all on public.questions from anon;
 grant all on public.questions to authenticated;
 
@@ -52,9 +55,15 @@ create policy "questions_admin_all"
   on public.questions to authenticated
   using (true) with check (true);
 
-create or replace view public.questions_public as
-  select id, question_number, question_text,
-         option_a, option_b, option_c, option_d, option_e, indicator
+-- Kolom kunci untuk asesmen isian (aman bila sudah ada).
+alter table public.questions add column if not exists answer_key text;
+alter table public.questions add column if not exists
+  answer_alternatives text[] not null default '{}';
+
+-- CREATE OR REPLACE VIEW tidak boleh mengurangi kolom, jadi view dibuat ulang.
+drop view if exists public.questions_public;
+create view public.questions_public as
+  select id, question_number, question_text, indicator
   from public.questions;
 
 grant select on public.questions_public to anon, authenticated;
@@ -64,6 +73,7 @@ grant select on public.questions_public to anon, authenticated;
 -- (SEC-02: daftar nama/hasil seluruh siswa tidak lagi terbaca tamu).
 drop policy if exists "results_insert" on public.results;
 drop policy if exists "results_select" on public.results;
+drop policy if exists "results_admin_read" on public.results;
 revoke all on public.results from anon;
 grant all on public.results to authenticated;
 
@@ -73,26 +83,94 @@ create policy "results_admin_read"
 alter table public.results add column if not exists answers_correct_json jsonb;
 alter table public.results add column if not exists answers_key_json jsonb;
 
--- Backfill baris lama: peta benar/salah + kunci dari answers_json
-update public.results r
-set answers_correct_json = (
-        select coalesce(jsonb_object_agg(q.id::text,
-                         (r.answers_json ->> q.id::text) = q.correct_answer),
-                        '{}'::jsonb)
-        from public.questions q
-        where r.answers_json ? q.id::text
-      ),
-    answers_key_json = (
-        select coalesce(jsonb_object_agg(q.id::text, q.correct_answer),
-                        '{}'::jsonb)
-        from public.questions q
-        where r.answers_json ? q.id::text
-      )
-where answers_correct_json is null;
+-- Backfill lama tidak dipakai lagi: bank soal dikosongkan dan kunci
+-- sekarang berupa teks rumus, bukan huruf pilihan ganda.
 
--- 4. RPC: grading server-side ---------------------------------
--- Kunci jawaban tidak pernah dikirim ke browser; skor & peta
--- indikator dihitung di database (SEC-06, RACE-01).
+-- 4. FUNGSI PEMBAKU JAWABAN ------------------------------------
+-- Menyetarakan bentuk jawaban agar 1/2, 2/4, dan 0,5 menghasilkan
+-- kanonik yang sama. Teks non-numerik dibakukan jadi huruf/digit
+-- tanpa spasi, sehingga "Lima Per Enam" cocok dengan alternatifnya.
+create or replace function public.canonical_answer(p_text text)
+returns text
+language plpgsql
+immutable
+set search_path = public
+as $$
+declare
+  s text;
+  parts text[];
+  num numeric;
+  den numeric;
+  whole numeric;
+  v numeric;
+begin
+  s := lower(coalesce(p_text, ''));
+  s := replace(s, chr(9), ' ');
+  s := replace(s, chr(10), ' ');
+  s := replace(s, chr(13), ' ');
+  s := regexp_replace(s, '\s+', ' ', 'g');
+  s := btrim(s);
+  if s = '' then
+    return '';
+  end if;
+
+  s := replace(s, '½', '1/2');
+  s := replace(s, '¼', '1/4');
+  s := replace(s, '¾', '3/4');
+  s := replace(s, ',', '.');
+  s := btrim(s);
+  -- Spasi di sekitar tanda bagi tidak mengubah makna pecahan.
+  s := regexp_replace(s, '\s*/\s*', '/', 'g');
+
+  -- Bilangan bulat atau desimal.
+  if s ~ '^-?\d+(\.\d+)?$' then
+    return round(s::numeric, 3)::text;
+  end if;
+
+  -- Desimal tanpa angka di depan koma: .5 / -.5 / +.5
+  if s ~ '^[-+]?\.\d+$' then
+    if left(s, 1) = '-' then
+      s := '-0' || substring(s from 2);
+    elsif left(s, 1) = '+' then
+      s := '0' || substring(s from 2);
+    else
+      s := '0' || s;
+    end if;
+    return round(s::numeric, 3)::text;
+  end if;
+
+  -- Pecahan a/b, termasuk penyebut negatif.
+  if s ~ '^-?\d+/-?\d+$' then
+    parts := string_to_array(s, '/');
+    num := parts[1]::numeric;
+    den := parts[2]::numeric;
+    if den = 0 then
+      return '#/' || s;
+    end if;
+    return round(num / den, 3)::text;
+  end if;
+
+  -- Bilangan campuran, misalnya "1 1/2".
+  if s ~ '^-?\d+\s+\d+/\d+$' then
+    parts := regexp_match(s, '^(-?\d+)\s+(\d+)/(\d+)$');
+    whole := parts[1]::numeric;
+    num := parts[2]::numeric;
+    den := parts[3]::numeric;
+    if den = 0 then
+      return '#/' || s;
+    end if;
+    v := case when whole < 0 then whole - num / den
+              else whole + num / den end;
+    return round(v, 3)::text;
+  end if;
+
+  -- Sinonim teks: huruf besar/kecil dan spasi tidak dibedakan.
+  return regexp_replace(s, '[^a-z0-9]', '', 'g');
+end $$;
+
+-- 5. RPC: grading server-side ---------------------------------
+-- Kunci tidak pernah dikirim ke browser; jawaban siswa dibandingkan
+-- dengan kanonik kunci ATAU salah satu alternatif (SEC-06, RACE-01).
 create or replace function public.grade_and_save(
   p_token text, p_student text, p_answers jsonb, p_status text)
 returns public.results
@@ -139,11 +217,22 @@ begin
     indicator_summary_json, ai_recommendation)
   with graded as (
     select q.indicator,
-           (p_answers ->> q.id::text) = q.correct_answer as ok,
-           (p_answers ->> q.id::text) as letter,
            q.id::text as qid,
-           q.correct_answer,
-           q.question_number
+           q.question_number,
+           q.answer_key,
+           p_answers ->> q.id::text as answer,
+           (p_answers ->> q.id::text) is not null
+             and btrim(coalesce(q.answer_key, '')) <> ''
+             and (
+               public.canonical_answer(p_answers ->> q.id::text)
+                 = public.canonical_answer(q.answer_key)
+               or exists (
+                 select 1
+                 from unnest(coalesce(q.answer_alternatives, '{}'::text[])) as alt
+                 where public.canonical_answer(alt)
+                     = public.canonical_answer(p_answers ->> q.id::text)
+               )
+             ) as ok
     from public.questions q
   ),
   agg as (
@@ -164,8 +253,8 @@ begin
     p_status,
     p_answers,
     coalesce(jsonb_object_agg(qid, ok), '{}'::jsonb),
-    coalesce(jsonb_object_agg(qid, correct_answer)
-             filter (where letter is not null), '{}'::jsonb),
+    coalesce(jsonb_object_agg(qid, answer_key)
+             filter (where answer is not null), '{}'::jsonb),
     coalesce((select jsonb_agg(
                  jsonb_build_object(
                    'indicator', indicator,
@@ -181,7 +270,7 @@ begin
   return v_row;
 end $$;
 
--- 5. RPC: tempel rekomendasi AI (hanya pemilik token) ----------
+-- 6. RPC: tempel rekomendasi AI (hanya pemilik token) ----------
 create or replace function public.attach_recommendation(
   p_id uuid, p_token text, p_text text)
 returns void
@@ -199,7 +288,7 @@ begin
   where id = p_id and token_used = upper(btrim(p_token));
 end $$;
 
--- 6. RPC: hasil milik siswa (id + token ujian yang cocok) ------
+-- 7. RPC: hasil milik siswa (id + token ujian yang cocok) ------
 -- Tamu tidak bisa menjelajah hasil siswa lain (SEC-02, nomor 2).
 create or replace function public.get_result_for_student(
   p_id uuid, p_token text)
@@ -224,11 +313,12 @@ begin
   return v_row;
 end $$;
 
+grant execute on function public.canonical_answer(text) to anon, authenticated;
 grant execute on function public.grade_and_save(text, text, jsonb, text) to anon, authenticated;
 grant execute on function public.attach_recommendation(uuid, text, text) to anon, authenticated;
 grant execute on function public.get_result_for_student(uuid, text) to anon, authenticated;
 
--- 7. Nomor soal unik (BUG-03) ---------------------------------
+-- 8. Nomor soal unik (BUG-03) ---------------------------------
 -- Jika gagal karena ada duplikat nomor, rapikan dulu
 --   (contoh: update questions set question_number = 11 where id = ...;)
 -- lalu jalankan baris ini lagi.

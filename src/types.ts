@@ -1,24 +1,18 @@
-export type AnswerLetter = "A" | "B" | "C" | "D" | "E";
-
-export const ANSWER_LETTERS: AnswerLetter[] = ["A", "B", "C", "D", "E"];
-
 /** Soal versi aman milik siswa: TANPA kunci jawaban.
     Dikirim dari view questions_public (security-patch.sql). */
 export interface StudentQuestion {
   id: string;
   question_number: number;
   question_text: string;
-  option_a: string;
-  option_b: string;
-  option_c: string;
-  option_d: string;
-  option_e: string;
   indicator: string;
 }
 
 /** Soal lengkap milik admin (bisa tayang kunci jawaban). */
 export interface QuestionRow extends StudentQuestion {
-  correct_answer: AnswerLetter;
+  /** Kunci jawaban berupa rumus/nilai, misalnya "5/6". */
+  answer_key: string;
+  /** Alternatif teks yang diterima, misalnya ["lima per enam"]. */
+  answer_alternatives: string[];
   created_at?: string;
 }
 
@@ -38,8 +32,8 @@ export interface IndicatorSummary {
   percentage: number;
 }
 
-/** Jawaban siswa berdasarkan id soal. */
-export type AnswerMap = Record<string, AnswerLetter>;
+/** Jawaban siswa berdasarkan id soal, berupa teks yang diketik. */
+export type AnswerMap = Record<string, string>;
 
 export interface ResultRow {
   id: string;
@@ -53,8 +47,8 @@ export interface ResultRow {
   answers_json: AnswerMap | null;
   /** Peta id soal -> benar/salah. Hasil grading dari server. */
   answers_correct_json: Record<string, boolean> | null;
-  /** Peta id soal -> huruf kunci (hanya soal yang dijawab). */
-  answers_key_json: Record<string, AnswerLetter> | null;
+  /** Peta id soal -> teks kunci (rumus) untuk soal yang dijawab. */
+  answers_key_json: Record<string, string> | null;
   indicator_summary_json: IndicatorSummary[] | null;
   ai_recommendation: string | null;
   created_at: string;

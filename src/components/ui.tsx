@@ -1,7 +1,17 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Check, X } from "lucide-react";
+import {
+  Check,
+  X,
+  ChevronDown,
+  Clock,
+  ShieldCheck,
+  RotateCcw,
+  AlertCircle,
+  CheckCircle2,
+} from "lucide-react";
 import type { IndicatorSummary } from "../types";
+import { canonicalAnswer } from "../lib/answerFormat";
 import {
   MASTERY_COLOR,
   masteryOf,
@@ -112,6 +122,7 @@ export function Modal({
   subtitle,
   footer,
   finePrint,
+  maxWidth = "max-w-lg",
 }: {
   open: boolean;
   onClose: () => void;
@@ -125,6 +136,8 @@ export function Modal({
   footer?: ReactNode;
   /** catatan kecil di bawah footer */
   finePrint?: ReactNode;
+  /** lebar maksimum modal, default max-w-lg */
+  maxWidth?: string;
 }) {
   if (!open) return null;
 
@@ -146,7 +159,7 @@ export function Modal({
         <Card
           role="dialog"
           aria-modal="true"
-          className="max-h-[85dvh] w-full max-w-lg overflow-y-auto p-6 sm:p-8"
+          className={`max-h-[85dvh] w-full ${maxWidth} overflow-y-auto p-6 sm:p-8`}
         >
           {closeBtn && <div className="flex justify-end">{closeBtn}</div>}
           {children}
@@ -161,7 +174,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title ?? undefined}
-        className="flex max-h-[85dvh] w-full max-w-lg flex-col overflow-hidden"
+        className={`flex max-h-[85dvh] w-full ${maxWidth} flex-col overflow-hidden`}
       >
         {title != null && (
           <div className="flex items-start justify-between gap-4 border-b border-hairline px-6 pb-5 pt-6 sm:px-8 sm:pt-8">
@@ -321,5 +334,228 @@ export function ScoreMockCard({ className = "" }: { className?: string }) {
         ))}
       </div>
     </Card>
+  );
+}
+
+/* ============================================================
+   Interactive Mini-Assessment Preview (Hero Showcase)
+   Simulasi 1 soal nyata dengan Focus Lock & analisis Agnes AI.
+   ============================================================ */
+const DEMO_QUESTIONS = [
+  {
+    indicator: "Penyederhanaan Pecahan",
+    text: "Bentuk paling sederhana dari pecahan 18/24 adalah...",
+    answer: "3/4",
+    noteCorrect:
+      "Tepat. FPB dari 18 dan 24 adalah 6. (18 : 6) / (24 : 6) = 3/4.",
+    noteWrong:
+      "Belum tepat. Bagi pembilang dan penyebut 18/24 dengan FPB-nya agar lebih sederhana.",
+  },
+  {
+    indicator: "Operasi Hitung Pecahan",
+    text: "Hasil penjumlahan dari 1/2 + 1/4 adalah...",
+    answer: "3/4",
+    noteCorrect: "Tepat. Menyamakan penyebut ke per-4: 2/4 + 1/4 = 3/4.",
+    noteWrong:
+      "Belum tepat. Samakan penyebut kedua pecahan sebelum menjumlahkan pembilangnya.",
+  },
+];
+
+export function InteractiveQuizPreview({ className = "" }: { className?: string }) {
+  const [qIndex, setQIndex] = useState(0);
+  const [answer, setAnswer] = useState("");
+
+  const q = DEMO_QUESTIONS[qIndex];
+  const isAnswered = answer.trim().length > 0;
+  const isCorrect = canonicalAnswer(answer) === canonicalAnswer(q.answer);
+
+  function nextQuestion() {
+    setAnswer("");
+    setQIndex((prev) => (prev + 1) % DEMO_QUESTIONS.length);
+  }
+
+  function reset() {
+    setAnswer("");
+  }
+
+  return (
+    <div
+      className={
+        "w-full max-w-2xl rounded-card border border-hairline bg-canvas p-5 sm:p-7 text-left shadow-md transition-all duration-300 " +
+        className
+      }
+    >
+      {/* Top simulated bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline/80 pb-4">
+        <div className="flex items-center gap-2">
+          <span className="flex size-2 rounded-full bg-ok" />
+          <span className="text-caption-strong text-ink">Simulasi Ujian Langsung</span>
+          <span className="text-caption text-ink-48">&bull; Soal {qIndex + 1} dari {DEMO_QUESTIONS.length}</span>
+        </div>
+
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-[11px] font-medium text-ok">
+            <ShieldCheck className="size-3.5" />
+            <span className="hidden xs:inline">Focus Lock: Aktif</span>
+          </div>
+
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-pearl px-2.5 py-1 text-caption tabular-nums text-ink">
+            <Clock className="size-3.5 text-ink-48" />
+            <span>14:48</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Question Header */}
+      <div className="mt-5">
+        <span className="inline-block rounded-chip bg-pearl border border-hairline/60 px-3 py-1 text-[12px] font-medium text-ink-80">
+          Indikator: {q.indicator}
+        </span>
+        <h3 className="text-tagline mt-3 text-ink font-semibold leading-snug">
+          {q.text}
+        </h3>
+      </div>
+
+      {/* Answer Input */}
+      <div className="mt-5">
+        <label htmlFor="demo-answer" className="text-caption-strong text-ink-80">
+          Jawaban Anda
+        </label>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            id="demo-answer"
+            type="text"
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            placeholder="Tulis pecahan, misalnya 3/4"
+            className="focus-ring w-full rounded-chip border-2 border-hairline bg-canvas px-4 py-3 text-body text-ink outline-none placeholder:text-ink-48 focus:border-focus disabled:opacity-70"
+          />
+          {isAnswered && isCorrect && (
+            <CheckCircle2 className="size-6 text-ok shrink-0" />
+          )}
+          {isAnswered && !isCorrect && (
+            <AlertCircle className="size-6 text-bad shrink-0" />
+          )}
+        </div>
+        <p className="text-caption mt-2 text-ink-48">
+          Pecahan setara seperti 6/8 dan 0,75 dianggap sama.
+        </p>
+      </div>
+
+      {/* Diagnostic Analysis Panel (Appears once answered) */}
+      {isAnswered && (
+        <div className="mt-5 rounded-util border border-hairline bg-pearl p-4 animate-in fade-in duration-200">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-caption-strong text-ink font-semibold">
+                Diagnosis Agnes AI:
+              </span>
+              <span
+                className={
+                  "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium " +
+                  (isCorrect ? "bg-ok/10 text-ok" : "bg-warn/15 text-warn")
+                }
+              >
+                {isCorrect ? "Penguasaan Terpenuhi" : "Perlu Remedial"}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={reset}
+              className="press text-caption text-ink-48 hover:text-ink inline-flex items-center gap-1"
+            >
+              <RotateCcw className="size-3" />
+              <span>Ulangi</span>
+            </button>
+          </div>
+
+          <p className="text-caption mt-2 text-ink-80 leading-relaxed">
+            {isCorrect ? q.noteCorrect : q.noteWrong}
+          </p>
+
+          <div className="mt-3 border-t border-hairline/80 pt-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[12px] text-ink-48">
+              Rekomendasi tindak lanjut:{" "}
+              <strong className="text-ink font-medium">
+                {isCorrect
+                  ? "Lanjut ke latihan pecahan senilai kompleks."
+                  : "Penguatan konsep pembagi persekutuan terbesar (FPB)."}
+              </strong>
+            </p>
+
+            <button
+              type="button"
+              onClick={nextQuestion}
+              className="press focus-ring rounded-full bg-ink px-3 py-1 text-caption-strong text-white hover:bg-ink-80"
+            >
+              Coba Contoh Soal Lain &rarr;
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Initial hint before answering */}
+      {!isAnswered && (
+        <p className="mt-4 text-center text-caption text-ink-48">
+          Ketik jawaban di atas untuk menguji deteksi analisis diagnostik.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   Minimalist FAQ Accordion (Clean Hairline Borders)
+   ============================================================ */
+export interface AccordionItem {
+  id: string;
+  question: string;
+  answer: string | ReactNode;
+}
+
+export function Accordion({ items }: { items: AccordionItem[] }) {
+  const [openIds, setOpenIds] = useState<Record<string, boolean>>({
+    [items[0]?.id || ""]: true,
+  });
+
+  function toggle(id: string) {
+    setOpenIds((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  }
+
+  return (
+    <div className="divide-y divide-hairline border-y border-hairline">
+      {items.map((item) => {
+        const isOpen = !!openIds[item.id];
+        return (
+          <div key={item.id} className="py-4">
+            <button
+              type="button"
+              onClick={() => toggle(item.id)}
+              aria-expanded={isOpen}
+              className="press focus-ring flex w-full items-center justify-between text-left text-body-strong text-ink hover:text-primary transition-colors py-1"
+            >
+              <span className="text-[16px] sm:text-[17px] font-medium pr-4">
+                {item.question}
+              </span>
+              <ChevronDown
+                className={
+                  "size-5 shrink-0 text-ink-48 transition-transform duration-200 " +
+                  (isOpen ? "rotate-180 text-ink" : "")
+                }
+              />
+            </button>
+            {isOpen && (
+              <div className="mt-3 text-caption text-ink-80 leading-relaxed pr-6 animate-in fade-in duration-200">
+                {item.answer}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }

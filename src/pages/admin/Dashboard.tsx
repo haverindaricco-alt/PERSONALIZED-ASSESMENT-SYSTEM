@@ -11,7 +11,8 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { SubNav } from "../../components/nav";import {
+import { AppNavbar } from "../../components/nav";
+import {
   Button,
   Card,
   Field,
@@ -32,11 +33,10 @@ import {
   updateQuestion,
   updateSettings,
 } from "../../lib/supabase";
+import { canonicalAnswer } from "../../lib/answerFormat";
 import { formatIdDateTime, formatScore } from "../../lib/scoring";
 import {
-  ANSWER_LETTERS,
   classifyCompletion,
-  type AnswerLetter,
   type QuestionRow,
   type ResultRow,
 } from "../../types";
@@ -53,24 +53,16 @@ interface QuestionForm {
   id?: string;
   question_number: number;
   question_text: string;
-  option_a: string;
-  option_b: string;
-  option_c: string;
-  option_d: string;
-  option_e: string;
-  correct_answer: AnswerLetter;
+  answer_key: string;
+  answer_alternatives: string[];
   indicator: string;
 }
 
 const EMPTY_FORM: QuestionForm = {
   question_number: 0,
   question_text: "",
-  option_a: "",
-  option_b: "",
-  option_c: "",
-  option_d: "",
-  option_e: "",
-  correct_answer: "A",
+  answer_key: "",
+  answer_alternatives: [""],
   indicator: "Umum",
 };
 
@@ -150,12 +142,11 @@ export default function AdminDashboard() {
         id: question.id,
         question_number: question.question_number,
         question_text: question.question_text,
-        option_a: question.option_a,
-        option_b: question.option_b,
-        option_c: question.option_c,
-        option_d: question.option_d,
-        option_e: question.option_e,
-        correct_answer: question.correct_answer,
+        answer_key: question.answer_key,
+        answer_alternatives:
+          question.answer_alternatives.length > 0
+            ? [...question.answer_alternatives]
+            : [""],
         indicator: question.indicator,
       });
     } else {
@@ -176,15 +167,8 @@ export default function AdminDashboard() {
       setFormError("Teks soal wajib diisi.");
       return;
     }
-    const optKeyList: Array<keyof QuestionForm> = [
-      "option_a",
-      "option_b",
-      "option_c",
-      "option_d",
-      "option_e",
-    ];
-    if (optKeyList.some((k) => !String(form[k]).trim())) {
-      setFormError("Kelima opsi A sampai E wajib diisi.");
+    if (!form.answer_key.trim()) {
+      setFormError("Kunci jawaban wajib diisi.");
       return;
     }
 
@@ -206,12 +190,10 @@ export default function AdminDashboard() {
       const payload = {
         question_number: form.question_number,
         question_text: form.question_text.trim(),
-        option_a: form.option_a.trim(),
-        option_b: form.option_b.trim(),
-        option_c: form.option_c.trim(),
-        option_d: form.option_d.trim(),
-        option_e: form.option_e.trim(),
-        correct_answer: form.correct_answer,
+        answer_key: form.answer_key.trim(),
+        answer_alternatives: form.answer_alternatives
+          .map((a) => a.trim())
+          .filter((a) => a.length > 0),
         indicator: form.indicator.trim() || "Umum",
       };
       if (form.id) {
@@ -252,11 +234,28 @@ export default function AdminDashboard() {
     }
   }
 
-  const optionValue = useCallback(
-    (l: AnswerLetter) =>
-      String(form[`option_${l.toLowerCase()}` as keyof QuestionForm]),
-    [form],
-  );
+  function updateAlternative(index: number, value: string) {
+    setForm((f) => ({
+      ...f,
+      answer_alternatives: f.answer_alternatives.map((a, i) =>
+        i === index ? value : a,
+      ),
+    }));
+  }
+
+  function addAlternative() {
+    setForm((f) => ({
+      ...f,
+      answer_alternatives: [...f.answer_alternatives, ""],
+    }));
+  }
+
+  function removeAlternative(index: number) {
+    setForm((f) => ({
+      ...f,
+      answer_alternatives: f.answer_alternatives.filter((_, i) => i !== index),
+    }));
+  }
 
   const recap = useMemo(
     () =>
@@ -266,16 +265,22 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-[100dvh] bg-parchment pb-16">
-      <SubNav
-        title="Dashboard Admin"
+      <AppNavbar
+        title="Dashboard"
+        badge="Admin"
         actions={
-          <Button variant="dark" onClick={() => void logout()}>
-            <LogOut className="size-4" /> Keluar
-          </Button>
+          <button
+            type="button"
+            onClick={() => void logout()}
+            className="press focus-ring inline-flex items-center gap-1.5 rounded-full bg-ink px-3.5 py-1.5 text-caption-strong text-white hover:bg-ink-80 transition-all shadow-xs"
+          >
+            <LogOut className="size-3.5" />
+            <span className="hidden xs:inline">Keluar</span>
+          </button>
         }
       />
 
-      <main className="mx-auto max-w-6xl px-5 pt-8 sm:px-8">
+      <main className="mx-auto max-w-6xl px-5 pt-24 sm:pt-28 sm:px-8">
         {/* Tab switch */}
         <div className="flex flex-wrap gap-3">
           {TABS.map((t) => {
@@ -392,8 +397,8 @@ export default function AdminDashboard() {
                     <div>
                       <h2 className="text-display-md text-ink">Bank Soal</h2>
                       <p className="text-caption mt-1 text-ink-48">
-                        {questions.length} soal aktif. Kunci jawaban memakai
-                        huruf A sampai E.
+                        {questions.length} soal aktif. Kunci berupa rumus atau
+                        nilai, dengan alternatif jawaban yang diterima.
                       </p>
                     </div>
                     <Button variant="primary" onClick={() => openForm()}>
@@ -427,7 +432,7 @@ export default function AdminDashboard() {
                           {q.indicator}
                         </span>
                         <span className="text-caption-strong rounded-pill border border-hairline px-2.5 py-1 text-primary">
-                          Kunci {q.correct_answer}
+                          Kunci {q.answer_key}
                         </span>
 
                         <span className="flex gap-1">
@@ -595,39 +600,59 @@ export default function AdminDashboard() {
             />
           </Field>
 
-          {ANSWER_LETTERS.map((letter) => {
-            const key = `option_${letter.toLowerCase()}` as keyof QuestionForm;
-            return (
-              <Field key={letter} label={`Opsi ${letter}`}>
-                <input
-                  className={inputClass}
-                  value={String(form[key])}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, [key]: e.target.value }))
-                  }
-                />
-              </Field>
-            );
-          })}
-
-          <Field label="Kunci Jawaban">
-            <select
-              className={selectClass}
-              value={form.correct_answer}
+          <Field label="Kunci Jawaban (rumus/nilai)">
+            <textarea
+              className={textareaClass + " min-h-24"}
+              value={form.answer_key}
               onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  correct_answer: e.target.value as AnswerLetter,
-                }))
+                setForm((f) => ({ ...f, answer_key: e.target.value }))
               }
-            >
-              {ANSWER_LETTERS.map((l) => (
-                <option key={l} value={l}>
-                  {l}) {optionValue(l)}
-                </option>
-              ))}
-            </select>
+              placeholder="Misalnya 5/6 atau 0,5"
+            />
+            <p className="text-caption mt-2 leading-relaxed text-ink-48">
+              Bentuk setara seperti 2/4 dan 0,5 otomatis diterima.
+              {form.answer_key.trim() &&
+                ` Bentuk baku: ${canonicalAnswer(form.answer_key)}.`}
+            </p>
           </Field>
+
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-caption-strong text-ink-80">
+                Alternatif Diterima
+              </p>
+              <button
+                type="button"
+                onClick={addAlternative}
+                className="press focus-ring inline-flex items-center gap-1 rounded-pill border border-hairline px-3 py-1 text-caption text-primary"
+              >
+                <Plus className="size-3.5" /> Tambah
+              </button>
+            </div>
+            <p className="text-caption mt-1 text-ink-48">
+              Untuk sinonim yang tidak bisa diturunkan, misalnya "lima per enam".
+            </p>
+            <div className="mt-3 flex flex-col gap-2">
+              {form.answer_alternatives.map((alt, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    className={inputClass}
+                    value={alt}
+                    onChange={(e) => updateAlternative(i, e.target.value)}
+                    placeholder={`Alternatif ${i + 1}`}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Hapus alternatif"
+                    onClick={() => removeAlternative(i)}
+                    className="press focus-ring rounded-full p-2 text-ink-48 hover:text-bad"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {formError && (
             <p className="text-caption rounded-util bg-bad/10 px-4 py-3 text-bad">
