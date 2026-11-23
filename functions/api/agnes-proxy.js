@@ -70,7 +70,7 @@ export async function onRequestPost({ request, env }) {
         m &&
         (m.role === "system" || m.role === "user") &&
         typeof m.content === "string" &&
-        m.content.length <= 6000,
+        m.content.length <= 20000,
     );
   if (!validMessages) {
     return json(400, { error: "Struktur pesan tidak valid." });
@@ -82,7 +82,7 @@ export async function onRequestPost({ request, env }) {
       : 0.3;
   const max_tokens =
     typeof body.max_tokens === "number"
-      ? Math.min(512, Math.max(16, Math.trunc(body.max_tokens)))
+      ? Math.min(4096, Math.max(16, Math.trunc(body.max_tokens)))
       : 350;
 
   try {

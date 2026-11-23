@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseMathText } from "../src/lib/mathText.ts";
+import { normalizeMathText, parseMathText } from "../src/lib/mathText.ts";
 
 test("pecahan dengan ekspresi huruf dikenali", () => {
   assert.deepEqual(parseMathText("(y2 - y1)/(x2 - x1)"), [
@@ -31,4 +31,16 @@ test("kata biasa dengan garis miring tidak dianggap pecahan", () => {
   assert.deepEqual(parseMathText("and/or"), [
     { type: "text", value: "and/or" },
   ]);
+});
+
+test("pangkat bawah diubah menjadi angka biasa", () => {
+  assert.equal(normalizeMathText("y₂"), "y2");
+  assert.equal(normalizeMathText("x₁ + y₂"), "x1 + y2");
+});
+
+test("teks tanpa pangkat bawah tidak berubah", () => {
+  assert.equal(
+    normalizeMathText("(y2 - y1)/(x2 - x1)"),
+    "(y2 - y1)/(x2 - x1)",
+  );
 });

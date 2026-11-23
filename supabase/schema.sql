@@ -44,12 +44,22 @@ CREATE TABLE public.results (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 3b. TABEL CLASS_REPORTS (ringkasan AI tingkat kelas untuk guru) -----
+CREATE TABLE public.class_reports (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    token_used TEXT NOT NULL,
+    student_count INT NOT NULL DEFAULT 0,
+    summary_json JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- 4. ROW LEVEL SECURITY ----------------------------------------
 -- Aplikasi mengakses DB dengan kunci anon; security-patch.sql
 -- mengganti policy ini menjadi RLS ketat + RPC penilaian.
 ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.class_reports ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "settings_select" ON public.settings FOR SELECT USING (true);
 CREATE POLICY "settings_update" ON public.settings FOR UPDATE USING (true) WITH CHECK (true);
@@ -61,6 +71,10 @@ CREATE POLICY "questions_delete" ON public.questions FOR DELETE USING (true);
 
 CREATE POLICY "results_select" ON public.results FOR SELECT USING (true);
 CREATE POLICY "results_insert" ON public.results FOR INSERT WITH CHECK (true);
+CREATE POLICY "results_update" ON public.results FOR UPDATE USING (true) WITH CHECK (true);
+
+CREATE POLICY "class_reports_select" ON public.class_reports FOR SELECT USING (true);
+CREATE POLICY "class_reports_insert" ON public.class_reports FOR INSERT WITH CHECK (true);
 
 CREATE VIEW public.questions_public AS
     SELECT id, question_number, question_text, indicator

@@ -11,7 +11,7 @@ dilakukan sepenuhnya di server.
 - React Router v6
 - Tailwind CSS v4 (design tokens ala Apple di `src/design/theme.css`)
 - Supabase PostgreSQL + Supabase Auth (tabel `settings`, `questions`,
-  `results`, view `questions_public`)
+  `results`, `class_reports`, view `questions_public`)
 - Agnes AI API via Cloudflare Pages Function (`/api/agnes-proxy`)
 - Hosting: Cloudflare Pages (`dist` + `functions/`)
 
@@ -24,9 +24,12 @@ dilakukan sepenuhnya di server.
      `supabase/migration-fill-in.sql` **dulu** (mengosongkan bank soal),
      lalu `supabase/security-patch.sql`.
    Patch ini memasang RLS ketat, view soal tanpa kunci, fungsi
-   `canonical_answer` untuk menyetarakan bentuk jawaban, serta RPC
+   `canonical_answer` untuk menyetarakan bentuk jawaban, izin hapus
+   rekap nilai, tabel `class_reports` untuk ringkasan kelas, serta RPC
    `grade_and_save`, `attach_recommendation`, dan
-   `get_result_for_student`.
+   `get_result_for_student`. Jalankan ulang `security-patch.sql` bila
+   database sudah pernah dipasang sebelum fitur hapus rekap atau
+   ringkasan untuk guru ditambahkan.
 2. **Akun admin** — Supabase Dashboard > Authentication > Users >
    Add user: buat satu user (email + password). Akun ini dipakai untuk
    login di halaman `/admin/login`. Tidak ada lagi PIN bawaan.
@@ -89,10 +92,20 @@ npm run dev
   (presisi tiga angka desimal). Kunci tidak pernah dikirim ke browser,
   dan hasil tersimpan walau Agnes AI lambat.
 - **Hasil & diagnostik**: nilai skala 100, peta penguasaan indikator
-  (hijau >= 75, kuning 50-74, merah < 50), rekomendasi belajar Agnes AI
-  yang menyusul setelah hasil tersimpan, tinjauan jawaban lengkap
-  dengan kunci rumus. Link hasil hanya bisa dibuka dengan token ujian
-  yang cocok.
+  (hijau >= 75, kuning 50-74, merah < 50), umpan balik belajar Agnes AI
+  per indikator yang menyusul setelah hasil tersimpan, tinjauan jawaban
+  lengkap dengan kunci rumus. Link hasil hanya bisa dibuka dengan token
+  ujian yang cocok.
+- **Analisis AI terstruktur**: AI menelusuri langkah pengerjaan tiap
+  butir, menandai langkah pertama yang keliru, kesalahan terbawa,
+  jawaban benar dengan proses yang perlu diperiksa, serta jenis
+  kesalahan (konseptual, prosedural, perhitungan, atau tidak dapat
+  ditentukan). Status benar/salah tetap berasal dari server; AI tidak
+  menilai ulang kunci jawaban.
+- **Ringkasan untuk guru**: menu admin berisi agregat penguasaan
+  indikator satu kelas, pola kesalahan berulang, siswa yang perlu
+  perhatian, dan laporan AI yang dapat dibuat ulang. Ringkasan
+  disimpan di tabel `class_reports`.
 - **Anti-cheat Focus Lock**: `visibilitychange` dan `blur` memicu force
   submit dengan status `DIHENTIKAN - Pelanggaran Fokus Halaman`; waktu
   habis menjadi `DIHENTIKAN - Waktu Habis`. Status yang tercatat lebih
@@ -100,7 +113,8 @@ npm run dev
 - **Admin**: login email + password lewat Supabase Auth (guard
   `RequireAdmin` memvalidasi sesi JWT), pengaturan token/status/durasi,
   CRUD bank soal dengan nomor unik, kunci rumus, dan alternatif jawaban,
-  rekap nilai seluruh siswa.
+  rekap nilai seluruh siswa dengan umpan balik per siswa, ekspor Excel,
+  hapus terpilih/seluruh data, dan ringkasan kelas untuk guru.
 
 ## Catatan keamanan
 

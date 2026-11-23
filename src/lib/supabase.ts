@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import type {
   AnswerMap,
+  ClassReport,
+  ClassReportRow,
   QuestionRow,
   ResultRow,
   SettingsRow,
@@ -226,4 +228,72 @@ export async function fetchResults(): Promise<ResultRow[]> {
       .order("created_at", { ascending: false })
       .limit(100),
   );
+}
+
+/** Semua hasil untuk ekspor Excel (melewati batas 100 baris layar). */
+export async function fetchAllResults(): Promise<ResultRow[]> {
+  const pageSize = 1000;
+  const all: ResultRow[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const page = await rows<ResultRow>(
+      supabase
+        .from("results")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .range(from, from + pageSize - 1),
+    );
+    all.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return all;
+}
+
+/** Hapus hasil terpilih. RLS results_admin_delete wajib terpasang. */
+export async function deleteResults(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await rows<ResultRow>(
+    supabase.from("results").delete().in("id", ids).select(),
+  );
+}
+
+/** Hapus seluruh hasil ujian (bukan hanya 100 baris yang tampil). */
+export async function deleteAllResults(): Promise<void> {
+  await rows<ResultRow>(
+    supabase.from("results").delete().not("id", "is", null).select(),
+  );
+}
+
+/* ---------- Ringkasan kelas untuk guru ---------- */
+
+export async function fetchLatestClassReport(
+  token: string,
+): Promise<ClassReportRow | null> {
+  const list = await rows<ClassReportRow>(
+    supabase
+      .from("class_reports")
+      .select("*")
+      .eq("token_used", token)
+      .order("created_at", { ascending: false })
+      .limit(1),
+  );
+  return list[0] ?? null;
+}
+
+export async function saveClassReport(
+  token: string,
+  studentCount: number,
+  report: ClassReport,
+): Promise<ClassReportRow> {
+  const list = await rows<ClassReportRow>(
+    supabase
+      .from("class_reports")
+      .insert({
+        token_used: token,
+        student_count: studentCount,
+        summary_json: report,
+      })
+      .select(),
+  );
+  if (!list[0]) throw new Error("Ringkasan kelas gagal disimpan.");
+  return list[0];
 }

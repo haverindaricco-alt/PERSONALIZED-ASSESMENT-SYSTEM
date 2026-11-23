@@ -6,6 +6,16 @@ export type MathSegment =
   | { type: "text"; value: string }
   | { type: "fraction"; numerator: string; denominator: string };
 
+const SUBSCRIPT_DIGITS = "₀₁₂₃₄₅₆₇₈₉";
+
+/** Ubah pangkat bawah (y₂) menjadi angka biasa (y2) agar penilaian
+    teks di database tetap mengenali bentuk yang sama. */
+export function normalizeMathText(value: string): string {
+  return value.replace(/[₀₁₂₃₄₅₆₇₈₉]/g, (ch) =>
+    String(SUBSCRIPT_DIGITS.indexOf(ch)),
+  );
+}
+
 const SIMPLE_TOKEN = "[+-]?(?:\\d+(?:[.,]\\d+)?|[A-Za-z]\\d*)";
 
 const FRACTION_PATTERN = new RegExp(

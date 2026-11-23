@@ -1,17 +1,30 @@
-import type { IndicatorSummary } from "../types";
+import type {
+  ClassReport,
+  ResultRow,
+  StudentAnalysis,
+  StudentAnalysisInput,
+} from "../types";
+import type { ClassOverview } from "./analysis";
+import {
+  buildClassPromptData,
+  parseClassReport,
+  parseStudentAnalysis,
+  statusFromPercentage,
+} from "./analysis";
 
 /* ============================================================
    Agnes AI via Cloudflare Pages Function (/api/agnes-proxy).
    Produksi: kunci ADA DI SERVER (AGNES_API_KEY env Cloudflare),
    tidak pernah masuk bundle browser (SEC-05).
-   Dev: bila belum ada proxy lokal, boleh memanggil langsung
+   Dev: bila proxy lokal belum ada, boleh memanggil langsung
    memakai VITE_AGNES_API_KEY (hanya dieksekusi saat mode dev).
    ============================================================ */
 
 const PROXY_URL = "/api/agnes-proxy";
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 45_000;
 const DEFAULT_BASE = "https://apihub.agnes-ai.com/v1";
 const DEFAULT_MODEL = "agnes-2.5-flash";
+const MAX_USER_CHARS = 18_000;
 
 const DEV_KEY = import.meta.env.DEV
   ? import.meta.env.VITE_AGNES_API_KEY || ""
@@ -24,37 +37,148 @@ const DEV_MODEL = import.meta.env.DEV
   : DEFAULT_MODEL;
 
 /* ============================================================
-   SYSTEM PROMPT DENGAN GROUND-TRUTH & ANTI-HALUSINASI KETAT
+   PROMPT PER SISWA — analisis langkah + umpan balik + laporan guru
    ============================================================ */
-const SYSTEM_PROMPT = `Kamu adalah guru berbahasa Indonesia yang menulis rekomendasi belajar personal berdasarkan data hasil asesmen berupa soal isian.
 
-Pedoman Anti-Halusinasi (Wajib Dipatuhi Secara Mutlak):
-1. HANYA gunakan nama indikator yang secara eksplisit tertulis pada data ujian siswa di bawah. Dilarang mengarang, menyingkat, atau memodifikasi istilah indikator.
-2. Dilarang mengarang angka persentase, jumlah benar, atau skor yang berbeda dari data siswa yang diberikan.
-3. Bagian "Kekuatan" WAJIB merujuk pada indikator dengan persentase tertinggi siswa.
-4. Bagian "Fokus" dan "Langkah" WAJIB berfokus pada 1-2 indikator dengan persentase terendah (indikator yang belum tuntas).
-5. Dilarang menulis pengantar ("Berikut rekomendasi:"), penutup, disclaimer AI, markdown tebal, daftar bullet point, atau menyebut diri sebagai AI/model bahasa.
+const STUDENT_PROMPT = `PERAN
+Kamu adalah asisten analisis asesmen formatif untuk materi Persamaan Garis Lurus (PGL) kelas VIII SMP. Tugasmu menganalisis jawaban dan langkah pengerjaan siswa, menyusun umpan balik personal untuk siswa, dan menyusun laporan belajar untuk guru. Kamu adalah alat bantu analisis. Kamu tidak mengambil keputusan pedagogis akhir; keputusan tindak lanjut ada pada guru.
 
-Keluaranmu wajib berupa tepat lima baris berlabel, tanpa baris lain:
-Kekuatan: <1 sampai 2 kalimat apresiasi yang menyebut indikator dengan penguasaan tertinggi beserta persentasenya>
-Fokus: <satu kalimat yang menyebut 1 sampai 2 indikator dengan penguasaan terendah>
-Langkah 1: <satu kalimat aksi konkret yang menyebut indikator terlemah>
-Langkah 2: <satu kalimat aksi konkret latihan mandiri>
-Langkah 3: <satu kalimat aksi konkret yang mengajak mengukur ulang kemajuan>
+KONTEKS ASESMEN
+- Bentuk soal: isian. Siswa menuliskan seluruh rumus dan langkah pengerjaan, lalu jawaban akhir.
+- Setiap butir soal terkait dengan satu indikator. Soal diacak per siswa, jadi gunakan hanya data butir yang dikirim, bukan urutan nomor.
+- Tujuh indikator penguasaan PGL:
+  I1. Menentukan gradien berdasarkan informasi yang diberikan (persamaan garis atau grafik).
+  I2. Menentukan gradien berdasarkan dua titik koordinat.
+  I3. Menentukan persamaan garis lurus berdasarkan gradien dan titik yang diketahui.
+  I4. Menentukan persamaan garis lurus berdasarkan dua titik.
+  I5. Menentukan hubungan dua garis (sejajar atau tegak lurus) berdasarkan nilai gradien.
+  I6. Menginterpretasikan hubungan antara persamaan garis lurus dan grafik.
+  I7. Menyelesaikan permasalahan kontekstual yang berkaitan dengan persamaan garis lurus.
+- Rumus acuan: y = mx + c; m = (y2 − y1)/(x2 − x1); y − y1 = m(x − x1); garis sejajar m1 = m2; garis tegak lurus m1 × m2 = −1.
+- Ambang penguasaan indikator: indikator dianggap dikuasai jika >= 70% butirnya benar (50-69% Perlu Diperkuat; < 50% Belum Dikuasai).
+- Gunakan status benar/salah dari sistem untuk jawaban akhir. Jangan menilai ulang kunci jawaban.
 
-Aturan mutlak:
-1. Tulis label "Kekuatan", "Fokus", "Langkah 1", "Langkah 2", "Langkah 3" diikuti titik dua, persis seperti itu, satu label per baris.
-2. Isi tiap baris maksimal 25 kata, dengan sapaan "kamu" yang hangat, edukatif, dan membangun.
-3. Kutip nama indikator persis seperti pada data, jangan mengganti atau meringkas istilahnya.`;
+LANGKAH ANALISIS (ikuti berurutan)
+1. Kelompokkan butir menurut indikatornya. Hitung jumlah benar dan salah per indikator.
+2. Tentukan setiap indikator: Dikuasai, Perlu Diperkuat, atau Belum Dikuasai, sesuai ambang di atas.
+3. Telusuri langkah pengerjaan setiap butir, baik yang jawaban akhirnya salah maupun yang benar:
+   a. Periksa langkah satu per satu dari awal. Tentukan langkah pertama yang keliru (jika ada).
+   b. Perhatikan kesalahan yang terbawa. Jika langkah berikutnya benar berdasarkan hasil langkah yang sudah keliru, jangan hitung langkah itu sebagai kesalahan baru. Sebutkan bahwa kesalahan terbawa dari langkah sebelumnya.
+   c. Jika jawaban akhir benar tetapi langkah atau penalarannya keliru, tidak lengkap, atau tidak masuk akal, tandai sebagai "benar tetapi proses perlu diperiksa". Jangan menyimpulkan siswa sudah paham hanya dari jawaban akhir yang benar.
+   d. Jika langkah tidak ditulis, tidak terbaca, atau tidak lengkap, katakan demikian dan jangan mengarang langkah yang tidak ada.
+4. Tentukan jenis kesalahan pada langkah pertama yang keliru:
+   - Konseptual: pemahaman konsep tidak sesuai, misalnya gradien dianggap tinggi, panjang, titik potong sumbu, atau hasil operasi aritmetika; rumus dipertukarkan karena salah konsep; menganggap garis tegak lurus bergradien sama.
+   - Prosedural: rumus yang dipilih tepat tetapi langkah atau aturan penyelesaian keliru, misalnya salah menerapkan rumus persamaan garis, salah mensubstitusi titik ke rumus, atau salah mengubah bentuk persamaan.
+   - Perhitungan: rumus dan langkah tepat tetapi operasi hitung keliru, misalnya salah tanda, salah operasi pecahan, atau selisih koordinat dihitung dengan urutan yang tidak konsisten.
+   - Terbawa dari langkah sebelumnya: kesalahan turunan dari langkah awal yang keliru.
+   - Tidak dapat ditentukan: langkah kosong atau polanya tidak cukup untuk menentukan jenisnya.
+   - Tidak ada: jika tidak ada kesalahan pada butir tersebut.
+5. Perhatikan pola antarbutir. Kesalahan yang muncul sekali pada satu indikator disebut kekeliruan sesaat. Kesalahan serupa yang berulang pada butir dengan indikator yang sama (atau pada indikator yang saling terkait, misalnya I1 dan I2) mengindikasikan kesulitan atau miskonsepsi.
+6. Susun umpan balik untuk siswa dan laporan untuk guru sesuai format keluaran.
 
-export interface RecommendationInput {
-  studentName: string;
-  score: number;
-  correctCount: number;
-  wrongCount: number;
-  totalQuestions: number;
-  indicators: IndicatorSummary[];
-}
+PRINSIP PENYUSUNAN UMPAN BALIK UNTUK SISWA
+1. Spesifik dan terkait indikator. Sebut indikator yang dibahas dengan bahasa siswa, bukan kode saja.
+2. Berdasarkan bukti. Kutip atau rujuk langkah siswa yang sebenarnya, misalnya "pada langkah saat kamu mengurangkan koordinat ...". Jangan mengarang kesalahan yang tidak tampak pada data.
+3. Deskriptif dan elaboratif. Jelaskan langkah mana yang keliru dan mengapa itu keliru. Jangan hanya menyatakan benar atau salah.
+4. Berfokus pada tugas dan proses. Bahas hasil jawaban dan cara pengerjaan. Jangan memberi komentar tentang pribadi siswa (misalnya "kamu pintar" atau "kamu lemah").
+5. Akui langkah yang sudah benar sebelum menunjuk langkah yang keliru, agar siswa tahu bagian mana yang tidak perlu diubah.
+6. Beri arahan perbaikan yang bisa dilakukan, berupa langkah belajar atau latihan kecil yang konkret.
+7. Jangan menuliskan penyelesaian lengkap yang benar untuk butir yang sama. Tunjukkan letak kesalahan, ingatkan rumus atau konsep yang relevan, lalu beri pertanyaan penuntun agar siswa memperbaikinya sendiri. Pengecualian: boleh memberi contoh serupa dengan angka berbeda.
+8. Sesuaikan nada dan kedalaman dengan penguasaan siswa:
+   - Mayoritas indikator dikuasai: beri afirmasi spesifik, lalu satu tantangan lanjutan.
+   - Sebagian dikuasai: beri saran tindak lanjut yang jelas dan bisa langsung dilakukan.
+   - Mayoritas belum dikuasai: beri evaluasi menyeluruh yang runtut, mulai dari konsep dasar (gradien), dengan langkah kecil bertahap dan tidak menumpuk banyak hal sekaligus.
+9. Bahasa Indonesia yang sederhana, hangat, dan jelas untuk siswa kelas VIII. Singkat dan tidak bertele-tele: maksimal 4 kalimat per butir yang bermasalah.
+10. Jangan memakai kata yang menghakimi. Sebut kesalahan sebagai bagian yang masih perlu diperkuat.
+
+PRINSIP UNTUK LAPORAN GURU
+- Ringkas, berbasis indikator, dan dapat ditindaklanjuti.
+- Tampilkan penguasaan per indikator, langkah yang keliru beserta jenis kesalahannya, pola yang berulang, dan rekomendasi tindak lanjut pembelajaran.
+- Sebutkan secara terpisah butir yang benar tetapi prosesnya perlu diperiksa.
+- Tandai bagian yang bersifat dugaan dengan kata "diduga" atau "kemungkinan", dan sebutkan langkah siswa yang mendasarinya.
+
+BATASAN DAN KEHATI-HATIAN
+- Langkah pengerjaan memberi bukti yang lebih kuat, tetapi alasan di balik langkah tetap tidak terlihat. Penyebab kesalahan (misalnya miskonsepsi tertentu) tetap bersifat dugaan. Gunakan kalimat seperti "kemungkinan kamu ...". Jangan menyatakannya seolah pasti.
+- Jangan menyimpulkan miskonsepsi dari satu kesalahan tunggal. Gunakan istilah "indikasi miskonsepsi" hanya jika polanya berulang.
+- Jika tulisan siswa ambigu atau tidak terbaca, katakan terus terang dan sarankan guru meninjau. Jangan menebak.
+- Jangan menambahkan butir, indikator, atau informasi di luar data masukan. Jangan menyebut nilai atau skor yang tidak ada di data.
+- Keluaran perlu ditinjau guru sebelum dipakai sebagai dasar keputusan.
+
+FORMAT KELUARAN (JSON valid, tanpa markdown atau teks di luar JSON)
+{
+  "id_siswa": "...",
+  "ringkasan_indikator": [
+    {"indikator": "I1", "nama": "...", "benar": 0, "total": 0, "status": "Dikuasai | Perlu Diperkuat | Belum Dikuasai"}
+  ],
+  "analisis_butir": [
+    {
+      "id_butir": "...",
+      "indikator": "I2",
+      "jawaban_akhir": "benar | salah",
+      "langkah_pertama_keliru": "kutipan atau deskripsi langkah siswa, atau null jika tidak ada",
+      "jenis_kesalahan": "konseptual | prosedural | perhitungan | terbawa dari langkah sebelumnya | tidak dapat ditentukan | tidak ada",
+      "catatan_proses": "mis. benar tetapi proses perlu diperiksa; langkah tidak lengkap; tulisan tidak terbaca"
+    }
+  ],
+  "umpan_balik_siswa": {
+    "pembuka": "1–2 kalimat apresiasi atau gambaran umum, sesuai tingkat penguasaan",
+    "per_indikator": [
+      {
+        "indikator": "I2",
+        "yang_sudah_baik": "langkah atau bagian yang sudah tepat",
+        "yang_perlu_diperkuat": "langkah yang keliru dan penjelasannya",
+        "kemungkinan_penyebab": "kalimat dugaan, bukan kepastian",
+        "langkah_perbaikan": ["langkah 1", "langkah 2"],
+        "petunjuk": "pertanyaan penuntun tanpa menuliskan penyelesaian lengkap"
+      }
+    ],
+    "penutup": "1–2 kalimat motivasi yang berfokus pada langkah selanjutnya"
+  },
+  "laporan_guru": {
+    "gambaran_umum": "...",
+    "indikator_dikuasai": ["..."],
+    "indikator_perlu_perhatian": [
+      {"indikator": "...", "dugaan_jenis_kesalahan": "konseptual | prosedural | perhitungan | tidak dapat ditentukan", "bukti": "langkah siswa yang mendasari", "pola_berulang": true, "rekomendasi_tindak_lanjut": "..."}
+    ],
+    "butir_benar_proses_perlu_diperiksa": ["id_butir"],
+    "catatan_kehati_hatian": "bagian yang perlu dikonfirmasi guru"
+  }
+}`;
+
+/* ============================================================
+   PROMPT TINGKAT KELAS — ringkasan untuk guru
+   ============================================================ */
+
+const CLASS_PROMPT = `PERAN
+Kamu adalah asisten analisis asesmen formatif PGL kelas VIII SMP. Tugasmu menyusun ringkasan belajar satu kelas untuk guru berdasarkan data agregat yang diberikan. Kamu alat bantu analisis; keputusan pedagogis akhir tetap pada guru.
+
+KONTEKS
+- Data berisi agregat penguasaan per indikator, ringkasan nilai tiap siswa, status pengerjaan, dan catatan analisis per siswa bila tersedia.
+- Indikator PGL: I1 gradien dari informasi yang diberikan; I2 gradien dari dua titik; I3 persamaan garis dari gradien dan titik; I4 persamaan garis dari dua titik; I5 hubungan dua garis sejajar/tegak lurus; I6 interpretasi persamaan dan grafik; I7 masalah kontekstual.
+- Gunakan label indikator PERSIS seperti pada data.
+- Gunakan HANYA data yang dikirim. Jangan mengarang nilai, nama siswa, butir, atau indikator.
+- Sebut dugaan dengan "diduga" atau "kemungkinan" dan dasarkan pada bukti yang ada.
+- Jangan menyebut siswa dengan label menghakimi. Fokus pada kebutuhan belajar.
+- Ringkas, berbasis indikator, dan dapat ditindaklanjuti guru.
+
+FORMAT KELUARAN
+Balas HANYA JSON valid tanpa markdown atau teks lain:
+{
+  "gambaran_umum": "2-4 kalimat ringkas tentang kondisi kelas, kekuatan, dan kebutuhan utama",
+  "penguasaan_indikator": [
+    {"indikator": "...", "persentase": 0, "status_kelas": "Dikuasai | Perlu Diperkuat | Belum Dikuasai", "catatan": "penjelasan singkat"}
+  ],
+  "pola_kesalahan": [
+    {"indikator": "...", "dugaan_jenis_kesalahan": "konseptual | prosedural | perhitungan | tidak dapat ditentukan", "bukti": "bukti dari data", "pola_berulang": true, "rekomendasi_tindak_lanjut": "..."}
+  ],
+  "siswa_perlu_perhatian": [
+    {"nama": "...", "alasan": "alasan berbasis data"}
+  ],
+  "rekomendasi_pembelajaran": ["langkah konkret untuk pertemuan berikutnya"],
+  "catatan_kehati_hatian": "bagian yang perlu dikonfirmasi guru"
+}`;
+
+/* ---------- Pemanggilan API ---------- */
 
 interface ChatChoice {
   message?: { content?: string };
@@ -64,410 +188,285 @@ interface ChatResponse {
   choices?: ChatChoice[];
 }
 
-/* ---------- Menyusun data input ground-truth ---------- */
-
-/** Indikator diurutkan tertinggi ke terendah agar "terkuat/terlemah" tidak ambigu. */
-function sortedIndicators(indicators: IndicatorSummary[]): IndicatorSummary[] {
-  return [...indicators].sort((a, b) => b.percentage - a.percentage);
-}
-
-function indicatorLines(indicators: IndicatorSummary[]): string {
-  if (indicators.length === 0) return "Umum: tidak ada data indikator.";
-  return sortedIndicators(indicators)
-    .map(
-      (i) =>
-        `${i.indicator}: ${Math.round(i.percentage)}% (${i.correct}/${i.total})`,
-    )
-    .join("; ");
-}
-
-/** Nama 1-2 indikator terlemah sebagai fokus perbaikan. */
-function weakIndicatorNames(indicators: IndicatorSummary[]): string {
-  const sorted = sortedIndicators(indicators);
-  if (sorted.length === 0) return "materi yang diujikan";
-  return (
-    sorted
-      .filter((i) => i.percentage < 75)
-      .map((i) => i.indicator)
-      .slice(0, 2)
-      .join(" dan ") || sorted[sorted.length - 1].indicator
-  );
-}
-
-/* ---------- Fallback Deterministik (Terjamin Benar & Konsisten) ---------- */
-
-function fallbackStrength(input: RecommendationInput): string {
-  const sorted = sortedIndicators(input.indicators);
-  const fmtScore = input.score.toLocaleString("id-ID", {
-    maximumFractionDigits: 1,
-  });
-  const strongestPhrase = sorted[0]
-    ? `${sorted[0].indicator} (${Math.round(sorted[0].percentage)}%)`
-    : "seluruh materi";
-  return `Selamat, ${input.studentName}! Kamu telah menyelesaikan ujian dengan nilai ${fmtScore} dari ${input.totalQuestions} soal. Penguasaan terbaikmu ada pada ${strongestPhrase}, pertahankan kebiasaan telitimu.`;
-}
-
-function fallbackFocus(input: RecommendationInput): string {
-  return `Perdalam pemahamanmu pada ${weakIndicatorNames(
-    input.indicators,
-  )} agar penguasaanmu antarindikator lebih merata.`;
-}
-
-function fallbackSteps(input: RecommendationInput): string[] {
-  const focus = weakIndicatorNames(input.indicators);
-  return [
-    `Pelajari ulang konsep dasar ${focus} melalui buku pelajarmu atau video pembelajaran, khususnya langkah perhitungannya.`,
-    `Kerjakan minimal lima soal latihan ${focus} setiap hari dan periksa ulang langkah perhitunganmu pada bagian yang keliru.`,
-    `Tanyakan bagian yang masih membingungkan kepada gurumu, lalu ulangi ujian serupa untuk mengukur kemajuan belajarmu.`,
-  ];
-}
-
-function buildFallback(input: RecommendationInput): string {
-  const steps = fallbackSteps(input);
-  return [
-    `Kekuatan: ${fallbackStrength(input)}`,
-    `Fokus: ${fallbackFocus(input)}`,
-    `Langkah 1: ${steps[0]}`,
-    `Langkah 2: ${steps[1]}`,
-    `Langkah 3: ${steps[2]}`,
-  ].join("\n");
-}
-
-/* ============================================================
-   ANTI-HALUSINASI & SANITASI KELUARAN AI
-   ============================================================ */
-
-type RecommendationParts = {
-  strength: string;
-  focus: string;
-  steps: string[];
-};
-
-/** Baris berlabel: "Kekuatan:", "Fokus:", "Langkah 1:" dst. */
-const LABEL_RE = /^(kekuatan|apresiasi|fokus|langkah\s*([123])\b)\s*[:-]?\s*(.*)$/i;
-const STEP_RE = /^([123])\b\s*[).:]\s*(.+)$/;
-
-/** Kata/frasa meta AI yang dilarang keras muncul dalam rekomendasi siswa. */
-const FORBIDDEN_META_RE =
-  /\b(sebagai\s+ai|model\s+bahasa|agnes\s+ai|chatgpt|openai|large\s+language\s+model|as\s+an\s+ai|language\s+model|maaf,\s*saya|saya\s+tidak\s+bisa|saya\s+adalah\s+(sebuah\s+)?(ai|model)|berikut\s+(adalah\s+)?(rekomendasi|analisis|hasil)|disclaimer|catatan\s*:)\b/i;
-
-/** Topik matematika di luar materi yang sering dihalusinasikan AI. */
-const FOREIGN_TOPIC_RE =
-  /\b(aljabar|trigonometri|kalkulus|integral|turunan|matriks|vektor|logaritma|peluang|statistika|persamaan\s+kuadrat|geometri\s+ruang|teorema\s+pythagoras)\b/i;
-
-/** Bersihkan artefak markdown, tag HTML, emoji, dan spasi ganda. */
-function sanitize(raw: string): string {
-  return raw
-    .replace(/\r\n?/g, "\n")
-    .replace(/```[a-z]*\n?/gi, "")
-    .replace(/<\/?[a-z][a-z0-9]*[^<>]*>/gi, "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\*([^*\n]+)\*/g, "$1")
-    .replace(/^#{1,6}\s*/gm, "")
-    .replace(/^[ \t]*[-\u2022*]\s+/gm, "")
-    .replace(/[`_]/g, "")
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
-    .replace(/[\u2013\u2014]/g, "-")
-    .replace(/[ \t]{2,}/g, " ");
-}
-
-/** Cek apakah teks memuat topik asing di luar indikator yang diujikan. */
-function hasForeignTopic(text: string, indicators: IndicatorSummary[]): boolean {
-  const indicatorNames = indicators.map((i) => i.indicator.toLowerCase()).join(" ");
-  if (!FOREIGN_TOPIC_RE.test(indicatorNames) && FOREIGN_TOPIC_RE.test(text)) {
-    return true;
-  }
-  return false;
-}
-
-/** Cari indikator terdaftar mana saja yang disebut dalam teks. */
-function getMentionedIndicators(
-  text: string,
-  indicators: IndicatorSummary[],
-): IndicatorSummary[] {
-  const lower = text.toLowerCase();
-  return indicators.filter((ind) =>
-    lower.includes(ind.indicator.trim().toLowerCase()),
-  );
-}
-
-/**
- * Validasi dan perbaiki angka persentase hasil halusinasi.
- * Jika model mengarang angka persentase yang tidak relevan dengan data riil,
- * angka tersebut dikoreksi ke persentase indikator tertinggi terdekat.
- */
-function correctHallucinatedPercentages(
-  text: string,
-  input: RecommendationInput,
-): string {
-  const sorted = sortedIndicators(input.indicators);
-  const validPcts = [
-    Math.round(input.score),
-    ...input.indicators.map((i) => Math.round(i.percentage)),
-  ];
-
-  return text.replace(/(\d{1,3})\s*%/g, (match, numStr) => {
-    const num = Number(numStr);
-    // Jika persentase cocok dengan salah satu data riil (toleransi ±3%), pertahankan
-    const isClose = validPcts.some((p) => Math.abs(p - num) <= 3);
-    if (isClose) return match;
-
-    // Bila halusinasi (misal ngarang 100% padahal data tertinggi hanya 80%),
-    // ganti dengan persentase riil indikator terkuat
-    const topPct = sorted[0]
-      ? Math.round(sorted[0].percentage)
-      : Math.round(input.score);
-    return `${topPct}%`;
-  });
-}
-
-/**
- * Validasi baris Kekuatan:
- * Mencegah inversi logika (memuji indikator terlemah), memblokir topik asing & meta AI.
- */
-function validateAndSanitizeStrength(
-  rawText: string,
-  input: RecommendationInput,
-): string {
-  let text = rawText.replace(/^kekuatan\s*[:-]?\s*/i, "").trim();
-  if (text.length < 15) return fallbackStrength(input);
-  if (FORBIDDEN_META_RE.test(text)) return fallbackStrength(input);
-  if (hasForeignTopic(text, input.indicators)) return fallbackStrength(input);
-
-  const sorted = sortedIndicators(input.indicators);
-  if (sorted.length > 1) {
-    const top = sorted[0];
-    const bottom = sorted[sorted.length - 1];
-    const mentioned = getMentionedIndicators(text, input.indicators);
-
-    // Deteksi inversi logika: jika hanya menyebut indikator terlemah dan tidak menyebut indikator terkuat
-    const mentionedBottom = mentioned.some((m) => m.indicator === bottom.indicator);
-    const mentionedTop = mentioned.some((m) => m.indicator === top.indicator);
-    if (mentionedBottom && !mentionedTop && top.percentage - bottom.percentage >= 20) {
-      return fallbackStrength(input);
-    }
-  }
-
-  text = correctHallucinatedPercentages(text, input);
-
-  if (!/[.!?]$/.test(text)) text += ".";
-
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length < 4 || words.length > 40) return fallbackStrength(input);
-
-  return text;
-}
-
-/**
- * Validasi baris Fokus:
- * Mencegah model menyuruh fokus pada indikator yang nilainya sudah sempurna.
- */
-function validateAndSanitizeFocus(
-  rawText: string,
-  input: RecommendationInput,
-): string {
-  let text = rawText.replace(/^fokus\s*[:-]?\s*/i, "").trim();
-  if (text.length < 10) return fallbackFocus(input);
-  if (FORBIDDEN_META_RE.test(text)) return fallbackFocus(input);
-  if (hasForeignTopic(text, input.indicators)) return fallbackFocus(input);
-
-  const sorted = sortedIndicators(input.indicators);
-  if (sorted.length > 1) {
-    const top = sorted[0];
-    const bottom = sorted[sorted.length - 1];
-    const mentioned = getMentionedIndicators(text, input.indicators);
-
-    // Jika indikator terkuat 100% dan terlemah < 70%, tapi fokus malah menyebut yang sudah 100%
-    const mentionedTop = mentioned.some((m) => m.indicator === top.indicator);
-    const mentionedBottom = mentioned.some((m) => m.indicator === bottom.indicator);
-    if (mentionedTop && !mentionedBottom && top.percentage === 100 && bottom.percentage < 70) {
-      return fallbackFocus(input);
-    }
-  }
-
-  if (!/[.!?]$/.test(text)) text += ".";
-
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length < 3 || words.length > 35) return fallbackFocus(input);
-
-  return text;
-}
-
-/**
- * Validasi baris Langkah:
- * Mencegah kalimat terpotong di tengah jalan atau memuat instruksi yang tidak relevan.
- */
-function validateAndSanitizeStep(
-  rawText: string,
-  stepIndex: number,
-  input: RecommendationInput,
-): string {
-  let text = rawText.replace(/^langkah\s*\d*\s*[:-]?\s*/i, "").trim();
-  const fallback = fallbackSteps(input)[stepIndex];
-
-  if (text.length < 10) return fallback;
-  if (FORBIDDEN_META_RE.test(text)) return fallback;
-  if (hasForeignTopic(text, input.indicators)) return fallback;
-
-  // Cek apakah kalimat terpotong di akhir dengan kata sambung/depan
-  if (/\b(dan|atau|tetapi|karena|pada|di|ke|dengan|untuk|yang)\s*$/i.test(text)) {
-    return fallback;
-  }
-
-  if (!/[.!?]$/.test(text)) text += ".";
-
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length < 3 || words.length > 35) return fallback;
-
-  return text;
-}
-
-/**
- * Petakan teks model ke slot lima bagian berlabel.
- */
-function parseRecommendation(clean: string): RecommendationParts {
-  const rec: RecommendationParts = { strength: "", focus: "", steps: ["", "", ""] };
-  let pending: "strength" | "focus" | number | null = null;
-
-  for (const line of clean.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-
-    const labeled = LABEL_RE.exec(trimmed);
-    if (labeled) {
-      const key = labeled[1].toLowerCase().replace(/\s+/g, " ");
-      const content = (labeled[3] ?? "").trim();
-      if (key === "kekuatan" || key === "apresiasi") {
-        rec.strength = content;
-        pending = content ? null : "strength";
-      } else if (key === "fokus") {
-        rec.focus = content;
-        pending = content ? null : "focus";
-      } else {
-        const idx = Math.min(2, Math.max(0, Number(labeled[2]) - 1));
-        rec.steps[idx] = content;
-        pending = content ? null : idx;
-      }
-      continue;
-    }
-
-    const stepped = STEP_RE.exec(trimmed);
-    if (stepped) {
-      rec.steps[Number(stepped[1]) - 1] = stepped[2].trim();
-      pending = null;
-      continue;
-    }
-
-    if (pending !== null) {
-      if (pending === "strength") rec.strength = trimmed;
-      else if (pending === "focus") rec.focus = trimmed;
-      else rec.steps[pending] = trimmed;
-      pending = null;
-    }
-  }
-  return rec;
-}
-
-/**
- * Normalisasi dan verifikasi ground-truth penuh untuk mencegah halusinasi.
- */
-function normalizeOutput(raw: string, input: RecommendationInput): string {
-  const sanitizedRaw = sanitize(raw);
-  const parsed = parseRecommendation(sanitizedRaw);
-
-  const strength = validateAndSanitizeStrength(parsed.strength, input);
-  const focus = validateAndSanitizeFocus(parsed.focus, input);
-  const step1 = validateAndSanitizeStep(parsed.steps[0], 0, input);
-  const step2 = validateAndSanitizeStep(parsed.steps[1], 1, input);
-  const step3 = validateAndSanitizeStep(parsed.steps[2], 2, input);
-
-  return [
-    `Kekuatan: ${strength}`,
-    `Fokus: ${focus}`,
-    `Langkah 1: ${step1}`,
-    `Langkah 2: ${step2}`,
-    `Langkah 3: ${step3}`,
-  ].join("\n");
-}
-
-/* ---------- Pemanggilan API ---------- */
-
-async function chatViaProxy(
-  userContent: string,
-  signal: AbortSignal,
+async function chatComplete(
+  system: string,
+  user: string,
+  maxTokens: number,
 ): Promise<string> {
-  const res = await fetch(PROXY_URL, {
-    method: "POST",
-    signal,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      temperature: 0.2,
-      max_tokens: 350,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userContent },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`Proxy merespons ${res.status}`);
-  const data = (await res.json()) as { content?: string };
-  return (data.content || "").trim();
-}
-
-/** Hanya dipakai di mode dev bila proxy belum berjalan. */
-async function chatViaDevDirect(
-  userContent: string,
-  signal: AbortSignal,
-): Promise<string> {
-  const res = await fetch(`${DEV_BASE}/chat/completions`, {
-    method: "POST",
-    signal,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${DEV_KEY}`,
-    },
-    body: JSON.stringify({
-      model: DEV_MODEL,
-      temperature: 0.2,
-      max_tokens: 350,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userContent },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`Agnes API merespons ${res.status}`);
-  const data = (await res.json()) as ChatResponse;
-  return (data.choices?.[0]?.message?.content || "").trim();
-}
-
-/** Minta rekomendasi belajar. Selalu terpenuhi dengan verifikasi ground-truth. */
-export async function recommendLearning(
-  input: RecommendationInput,
-): Promise<string> {
-  const userContent = [
-    `Nama siswa: ${input.studentName}`,
-    `Nilai akhir: ${input.score.toLocaleString("id-ID", { maximumFractionDigits: 2 })} dari skala 100`,
-    `Jawaban benar: ${input.correctCount}, salah: ${input.wrongCount}, total soal: ${input.totalQuestions}`,
-    `Peta penguasaan indikator: ${indicatorLines(input.indicators)}`,
-  ].join("\n");
-
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const payload = {
+    temperature: 0.2,
+    max_tokens: maxTokens,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+  };
   try {
-    let text = "";
     try {
-      text = await chatViaProxy(userContent, ctrl.signal);
+      const res = await fetch(PROXY_URL, {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`Proxy merespons ${res.status}`);
+      const data = (await res.json()) as { content?: string };
+      return (data.content || "").trim();
     } catch (err) {
-      /* Dev fallback bila proxy belum jalan */
       if (!import.meta.env.DEV || !DEV_KEY) throw err;
-      text = await chatViaDevDirect(userContent, ctrl.signal);
+      const res = await fetch(`${DEV_BASE}/chat/completions`, {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${DEV_KEY}`,
+        },
+        body: JSON.stringify({ ...payload, model: DEV_MODEL }),
+      });
+      if (!res.ok) throw new Error(`Agnes API merespons ${res.status}`);
+      const data = (await res.json()) as ChatResponse;
+      return (data.choices?.[0]?.message?.content || "").trim();
     }
-    if (text.length > 0) return normalizeOutput(text, input);
-    return buildFallback(input);
-  } catch {
-    return buildFallback(input);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Jaga agar data siswa tetap di bawah batas proxy tanpa memotong JSON. */
+function fitStudentData(input: StudentAnalysisInput): string {
+  let current = input;
+  let json = JSON.stringify(current);
+  while (json.length > MAX_USER_CHARS && current.daftar_butir.length > 1) {
+    current = {
+      ...current,
+      daftar_butir: current.daftar_butir.slice(0, -1),
+    };
+    json = JSON.stringify(current);
+  }
+  return json;
+}
+
+function fallbackStudentAnalysis(
+  input: StudentAnalysisInput,
+): StudentAnalysis {
+  const weak = input.ringkasan_indikator.filter((i) => i.status !== "Dikuasai");
+  const focus = weak.length > 0 ? weak : input.ringkasan_indikator;
+  const strong = [...input.ringkasan_indikator]
+    .sort((a, b) => b.persentase - a.persentase)
+    .filter((i) => i.total > 0);
+
+  const pembuka =
+    input.nilai >= 70
+      ? `Kerja bagus, ${input.nama}! Kamu sudah menunjukkan penguasaan yang baik pada sebagian besar materi. Berikut bagian yang masih bisa dipertajam.`
+      : `Terima kasih sudah mengerjakan, ${input.nama}. Setiap langkah yang kamu tulis membantu kami melihat bagian mana yang perlu diperkuat.`;
+
+  const per_indikator = focus.map((i) => ({
+    indikator: i.indikator,
+    yang_sudah_baik:
+      i.benar > 0
+        ? `${i.benar} dari ${i.total} butir pada indikator ini sudah benar.`
+        : "Kamu sudah berusaha menuliskan jawaban; ini titik awal yang bisa dikembangkan.",
+    yang_perlu_diperkuat:
+      i.benar < i.total
+        ? `${i.total - i.benar} butir pada indikator ini belum tepat. Periksa kembali langkah awal dan operasi hitungmu.`
+        : "Tidak ada butir yang salah pada indikator ini.",
+    kemungkinan_penyebab:
+      "Belum dapat dipastikan tanpa pemeriksaan langkah oleh guru.",
+    langkah_perbaikan: [
+      `Pelajari ulang konsep ${i.indikator} dan tuliskan rumus yang dipakai sebelum menghitung.`,
+      `Kerjakan 2-3 soal serupa, lalu bandingkan langkahmu dengan contoh pada buku.`,
+    ],
+    petunjuk: `Pada soal ${i.indikator}, langkah mana yang menurutmu paling perlu diperiksa kembali?`,
+  }));
+
+  const analisis_butir = input.daftar_butir.map((item) => ({
+    id_butir: item.id_butir,
+    indikator: item.indikator,
+    jawaban_akhir: item.status_benar_salah,
+    langkah_pertama_keliru: null,
+    jenis_kesalahan: "tidak dapat ditentukan",
+    catatan_proses:
+      item.status_benar_salah === "benar"
+        ? "Jawaban akhir benar; proses belum dianalisis otomatis."
+        : "Analisis langkah otomatis belum tersedia; guru perlu meninjau.",
+  }));
+
+  return {
+    version: 2,
+    id_siswa: input.id_siswa,
+    ringkasan_indikator: input.ringkasan_indikator.map((i) => ({
+      indikator: i.indikator,
+      nama: i.nama,
+      benar: i.benar,
+      total: i.total,
+      status: i.status,
+    })),
+    analisis_butir,
+    umpan_balik_siswa: {
+      pembuka,
+      per_indikator,
+      penutup:
+        focus.length > 0
+          ? `Fokus pada satu atau dua bagian dahulu, lalu ukur kemajuanmu dengan latihan berikutnya. Kamu bisa melakukannya bertahap.`
+          : "Pertahankan cara belajarmu dan coba tantangan soal yang lebih bervariasi.",
+    },
+    laporan_guru: {
+      gambaran_umum:
+        `Nilai ${input.nilai} dari 100 dengan ${input.jumlah_benar} benar dan ${input.jumlah_salah} salah. ` +
+        (strong[0]
+          ? `Penguasaan tertinggi pada ${strong[0].indikator} (${Math.round(strong[0].persentase)}%).`
+          : "Belum ada data indikator."),
+      indikator_dikuasai: input.ringkasan_indikator
+        .filter((i) => i.status === "Dikuasai")
+        .map((i) => i.indikator),
+      indikator_perlu_perhatian: weak.map((i) => ({
+        indikator: i.indikator,
+        dugaan_jenis_kesalahan: "tidak dapat ditentukan",
+        bukti: `${i.benar}/${i.total} butir benar.`,
+        pola_berulang: i.total > 1 && i.benar === 0,
+        rekomendasi_tindak_lanjut: `Tinjau langkah siswa pada ${i.indikator} dan beri latihan terbimbing.`,
+      })),
+      butir_benar_proses_perlu_diperiksa: [],
+      catatan_kehati_hatian:
+        "Ringkasan ini dibuat tanpa analisis langkah AI. Guru perlu meninjau jawaban siswa secara langsung.",
+    },
+    generated_at: new Date().toISOString(),
+  };
+}
+
+/** Analisis satu siswa. Selalu mengembalikan struktur yang aman dipakai UI. */
+export async function analyzeStudent(
+  input: StudentAnalysisInput,
+): Promise<StudentAnalysis> {
+  try {
+    const raw = await chatComplete(STUDENT_PROMPT, fitStudentData(input), 4000);
+    const parsed = parseStudentAnalysis(raw);
+    if (parsed) {
+      return {
+        ...parsed,
+        id_siswa: input.id_siswa,
+        version: 2,
+        generated_at: new Date().toISOString(),
+      };
+    }
+  } catch {
+    /* fallback deterministik di bawah */
+  }
+  return fallbackStudentAnalysis(input);
+}
+
+function fallbackClassReport(
+  token: string,
+  overview: ClassOverview,
+): ClassReport {
+  const weak = [...overview.indicators]
+    .filter((i) => i.percentage < 70)
+    .sort((a, b) => a.percentage - b.percentage);
+  const strongest = [...overview.indicators].sort(
+    (a, b) => b.percentage - a.percentage,
+  )[0];
+
+  return {
+    version: 2,
+    token,
+    jumlah_siswa: overview.students,
+    gambaran_umum:
+      `Kelas terdiri dari ${overview.students} siswa dengan rata-rata nilai ` +
+      `${overview.averageScore.toLocaleString("id-ID", {
+        maximumFractionDigits: 2,
+      })}. ` +
+      (strongest
+        ? `Penguasaan kelas tertinggi pada ${strongest.indicator} (${Math.round(
+            strongest.percentage,
+          )}%).`
+        : "Belum ada data indikator.") +
+      (weak[0]
+        ? ` Indikator yang paling perlu perhatian adalah ${weak[0].indicator} (${Math.round(
+            weak[0].percentage,
+          )}%).`
+        : ""),
+    penguasaan_indikator: overview.indicators.map((i) => ({
+      indikator: i.indicator,
+      persentase: Math.round(i.percentage * 10) / 10,
+      status_kelas: statusFromPercentage(i.percentage),
+      catatan: `${i.correct}/${i.total} butir benar; ${i.studentsMastered} siswa mencapai ambang 70%.`,
+    })),
+    pola_kesalahan: overview.patterns,
+    siswa_perlu_perhatian: overview.attention.slice(0, 10),
+    rekomendasi_pembelajaran:
+      weak.length > 0
+        ? [
+            `Ulangi konsep dasar ${weak[0].indicator} dengan contoh terbimbing sebelum latihan mandiri.`,
+            "Bahas dua atau tiga kesalahan langkah yang paling sering muncul, tanpa menyebut nama siswa.",
+            "Beri latihan singkat serupa dan periksa langkah awal siswa, bukan hanya jawaban akhir.",
+          ]
+        : [
+            "Pertahankan penguasaan dengan soal penerapan yang lebih bervariasi.",
+            "Beri tantangan kontekstual untuk menguatkan penalaran.",
+          ],
+    catatan_kehati_hatian:
+      overview.analyzed > 0
+        ? `Ringkasan memakai ${overview.analyzed} analisis siswa yang tersedia. Dugaan penyebab kesalahan tetap perlu dikonfirmasi guru.`
+        : "Belum ada analisis langkah per siswa. Ringkasan disusun dari data benar/salah saja.",
+    generated_at: new Date().toISOString(),
+  };
+}
+
+/** Ringkasan satu kelas untuk guru. */
+export async function summarizeClass(
+  token: string,
+  results: ResultRow[],
+  overview: ClassOverview,
+): Promise<ClassReport> {
+  const data = buildClassPromptData(token, results, overview);
+  try {
+    const raw = await chatComplete(
+      CLASS_PROMPT,
+      data.slice(0, MAX_USER_CHARS),
+      3000,
+    );
+    const parsed = parseClassReport(raw, token, overview.students);
+    if (parsed) {
+      /* Jangan biarkan AI menambah indikator/siswa yang tidak ada di data. */
+      const knownIndicators = new Set(
+        overview.indicators.map((i) => i.indicator),
+      );
+      if (knownIndicators.size > 0) {
+        parsed.penguasaan_indikator = parsed.penguasaan_indikator.filter((i) =>
+          knownIndicators.has(i.indikator),
+        );
+        parsed.pola_kesalahan = parsed.pola_kesalahan.filter((p) =>
+          knownIndicators.has(p.indikator),
+        );
+      }
+
+      const knownStudents = new Set(
+        results.map((r) => r.student_name.toLowerCase().trim()),
+      );
+      parsed.siswa_perlu_perhatian = parsed.siswa_perlu_perhatian.filter(
+        (s) => knownStudents.has(s.nama.toLowerCase().trim()),
+      );
+
+      /* Pastikan semua indikator pada data tetap muncul. */
+      const known = new Set(
+        parsed.penguasaan_indikator.map((i) => i.indikator),
+      );
+      for (const i of overview.indicators) {
+        if (!known.has(i.indicator)) {
+          parsed.penguasaan_indikator.push({
+            indikator: i.indicator,
+            persentase: Math.round(i.percentage * 10) / 10,
+            status_kelas: statusFromPercentage(i.percentage),
+            catatan: `${i.correct}/${i.total} butir benar.`,
+          });
+        }
+      }
+      return parsed;
+    }
+  } catch {
+    /* fallback deterministik */
+  }
+  return fallbackClassReport(token, overview);
 }

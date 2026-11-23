@@ -3,17 +3,16 @@ import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
-  Divide,
   Loader2,
   Repeat,
 } from "lucide-react";
 import { QuizNavbar, FloatingStickyBar } from "../../components/nav";
+import { FractionTextarea } from "../../components/FractionTextarea";
 import { MathText } from "../../components/MathText";
 import {
   Button,
   Modal,
   PearlChip,
-  textareaClass,
 } from "../../components/ui";
 import { useTimer } from "../../hooks/useTimer";
 import { useAntiCheat } from "../../hooks/useAntiCheat";
@@ -36,16 +35,6 @@ import {
   type QuizSession,
 } from "../../types";
 
-const SUBSCRIPT_DIGITS = "₀₁₂₃₄₅₆₇₈₉";
-
-/** Ubah pangkat bawah (y₂) menjadi angka biasa (y2) agar penilaian
-    teks di database tetap mengenali bentuk yang sama. */
-function normalizeMathText(value: string): string {
-  return value.replace(/[₀₁₂₃₄₅₆₇₈₉]/g, (ch) =>
-    String(SUBSCRIPT_DIGITS.indexOf(ch)),
-  );
-}
-
 export default function Quiz() {
   const navigate = useNavigate();
 
@@ -58,13 +47,8 @@ export default function Quiz() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  /* Alat bantu pecahan: posisi kursor di textarea diingat agar sisipan
-     masuk tepat di tempat siswa mengetik. */
-  const answerRef = useRef<HTMLTextAreaElement | null>(null);
-  const selectionRef = useRef({ start: 0, end: 0 });
-  const [fractionOpen, setFractionOpen] = useState(false);
-  const [fractionNum, setFractionNum] = useState("");
-  const [fractionDen, setFractionDen] = useState("");
+  /* Alat bantu pecahan berada di FractionTextarea; setiap soal memakai
+     instance baru agar panel dan isian pecahan tidak terbawa. */
 
   const answersRef = useRef(answers);
   answersRef.current = answers;
@@ -141,19 +125,6 @@ export default function Quiz() {
     [questions],
   );
 
-  const rememberSelection = useCallback(() => {
-    const el = answerRef.current;
-    if (!el) return;
-    selectionRef.current = { start: el.selectionStart, end: el.selectionEnd };
-  }, []);
-
-  /* Panel pecahan tidak terbawa saat siswa pindah soal. */
-  useEffect(() => {
-    setFractionOpen(false);
-    setFractionNum("");
-    setFractionDen("");
-  }, [idx]);
-
   const goPrev = useCallback(() => {
     if (submitLock.current) return;
     setIdx((i) => Math.max(0, i - 1));
@@ -199,46 +170,6 @@ export default function Quiz() {
   const answeredCount = Object.entries(answers).filter(
     ([id, value]) => sessionIds.has(id) && value.trim().length > 0,
   ).length;
-  const fractionNumValue = fractionNum.trim();
-  const fractionDenValue = fractionDen.trim();
-  const denominatorIsZero = /^[+-]?0+(?:[.,]0+)?$/.test(fractionDenValue);
-  const fractionValid =
-    fractionNumValue.length > 0 &&
-    fractionDenValue.length > 0 &&
-    !denominatorIsZero;
-
-  function insertFraction() {
-    if (!fractionValid) return;
-
-    /* Token tunggal (5, y2, -1) tidak perlu tanda kurung agar pecahan
-       angka tetap dikenali sebagai nilai oleh canonical_answer. Ekspresi
-       seperti y2 - y1 dibungkus agar batas pembilang/penyebut jelas. */
-    const atomicNum =
-      /^[A-Za-z0-9]+$/.test(fractionNumValue) ||
-      /^[+-]?\d+$/.test(fractionNumValue);
-    const atomicDen =
-      /^[A-Za-z0-9]+$/.test(fractionDenValue) ||
-      /^[+-]?\d+$/.test(fractionDenValue);
-    const token =
-      atomicNum && atomicDen
-        ? `${fractionNumValue}/${fractionDenValue}`
-        : `(${fractionNumValue})/(${fractionDenValue})`;
-
-    const { start, end } = selectionRef.current;
-    const next = answerText.slice(0, start) + token + answerText.slice(end);
-    handleChange(next);
-    setFractionOpen(false);
-    setFractionNum("");
-    setFractionDen("");
-    requestAnimationFrame(() => {
-      const el = answerRef.current;
-      if (!el) return;
-      const pos = start + token.length;
-      el.focus();
-      el.setSelectionRange(pos, pos);
-      selectionRef.current = { start: pos, end: pos };
-    });
-  }
 
   const isLast = idx === questions.length - 1;
   const remainingText = formatHMS(remainingMs);
@@ -267,136 +198,23 @@ export default function Quiz() {
           <PearlChip>{current.indicator}</PearlChip>
         </div>
 
-        <h2 className="text-tagline mt-6 text-ink">{current.question_text}</h2>
+        <h2 className="text-tagline mt-6 text-ink">
+          <MathText text={current.question_text} />
+        </h2>
 
         <div className="mt-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <label
-              htmlFor="quiz-answer"
-              className="text-caption-strong text-ink-80"
-            >
-              Jawaban Anda
-            </label>
-            <button
-              type="button"
-              aria-expanded={fractionOpen}
-              onClick={() => setFractionOpen((open) => !open)}
-              className="press focus-ring inline-flex items-center gap-1.5 rounded-pill border border-hairline bg-canvas px-3 py-1.5 text-caption-strong text-primary hover:bg-pearl"
-            >
-              <Divide className="size-4" />
-              Pecahan
-            </button>
-          </div>
-
-          <textarea
+          <FractionTextarea
+            key={current.id}
             id="quiz-answer"
-            ref={answerRef}
-            rows={5}
-            autoComplete="off"
-            autoCapitalize="off"
-            spellCheck={false}
+            label="Jawaban Anda"
             value={answerText}
-            onChange={(e) => handleChange(normalizeMathText(e.target.value))}
-            onFocus={rememberSelection}
-            onSelect={rememberSelection}
-            onKeyUp={rememberSelection}
-            onClick={rememberSelection}
+            onChange={handleChange}
+            rows={5}
+            minHeightClass="min-h-32"
+            showPreview
+            previewLabel="Tampilan jawaban"
             placeholder="Tulis jawaban akhir. Untuk pecahan, ketik 5/6 atau gunakan tombol Pecahan."
-            className={textareaClass + " mt-3 min-h-32 resize-y"}
           />
-
-          {answerText.trim() && (
-            <div className="mt-3 rounded-util border border-hairline bg-pearl p-4">
-              <p className="text-caption-strong text-ink">
-                Tampilan jawaban
-              </p>
-              <div className="mt-3 rounded-util border border-hairline bg-canvas px-4 py-3 text-body text-ink">
-                <MathText text={answerText} />
-              </div>
-            </div>
-          )}
-
-          {fractionOpen && (
-            <div className="mt-3 rounded-util border border-hairline bg-pearl p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-caption-strong text-ink">
-                    Sisipkan pecahan
-                  </p>
-                  <p className="text-caption mt-1 text-ink-48">
-                    Boleh angka, huruf, dan operasi. Contoh: y2 - y1.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFractionOpen(false)}
-                  className="press focus-ring rounded-pill px-2 py-1 text-caption text-ink-48 hover:text-ink"
-                >
-                  Tutup
-                </button>
-              </div>
-
-              <div className="mt-4 flex flex-wrap items-end gap-3">
-                <label className="flex flex-col gap-1 text-caption text-ink-48">
-                  Pembilang
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={fractionNum}
-                    onChange={(e) =>
-                      setFractionNum(normalizeMathText(e.target.value))
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        insertFraction();
-                      }
-                    }}
-                    className="focus-ring h-10 w-40 rounded-util border border-hairline bg-canvas px-3 text-body text-ink placeholder:text-ink-48"
-                  />
-                </label>
-
-                <span className="pb-2 text-body text-ink-48">/</span>
-
-                <label className="flex flex-col gap-1 text-caption text-ink-48">
-                  Penyebut
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={fractionDen}
-                    onChange={(e) =>
-                      setFractionDen(normalizeMathText(e.target.value))
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        insertFraction();
-                      }
-                    }}
-                    className="focus-ring h-10 w-40 rounded-util border border-hairline bg-canvas px-3 text-body text-ink placeholder:text-ink-48"
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  disabled={!fractionValid}
-                  onClick={insertFraction}
-                  className="press focus-ring h-10 rounded-pill bg-ink px-4 text-caption-strong text-white hover:bg-ink-80 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Sisipkan
-                </button>
-              </div>
-
-              {(fractionNumValue || fractionDenValue) && !fractionValid && (
-                <p className="text-caption mt-2 text-bad">
-                  Pembilang dan penyebut wajib diisi, dan penyebut tidak boleh
-                  0.
-                </p>
-              )}
-            </div>
-          )}
 
           <p className="text-caption mt-3 leading-relaxed text-ink-48">
             Spasi dan huruf besar tidak dibedakan. Bentuk setara seperti 2/4

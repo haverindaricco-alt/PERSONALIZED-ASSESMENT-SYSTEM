@@ -50,7 +50,131 @@ export interface ResultRow {
   /** Peta id soal -> teks kunci (rumus) untuk soal yang dijawab. */
   answers_key_json: Record<string, string> | null;
   indicator_summary_json: IndicatorSummary[] | null;
+  /** JSON StudentAnalysis (versi 2) atau teks rekomendasi lama. */
   ai_recommendation: string | null;
+  created_at: string;
+}
+
+/* ---------- Analisis AI terstruktur ---------- */
+
+export type IndicatorStatus =
+  | "Dikuasai"
+  | "Perlu Diperkuat"
+  | "Belum Dikuasai";
+
+export interface AnalysisItemInput {
+  id_butir: string;
+  indikator: string;
+  teks_soal: string;
+  kunci_jawaban: string;
+  jawaban_siswa: string;
+  status_benar_salah: "benar" | "salah";
+}
+
+export interface StudentAnalysisInput {
+  id_siswa: string;
+  nama: string;
+  nilai: number;
+  jumlah_benar: number;
+  jumlah_salah: number;
+  total_soal: number;
+  status_pengerjaan: string;
+  ringkasan_indikator: Array<{
+    indikator: string;
+    nama: string;
+    benar: number;
+    total: number;
+    persentase: number;
+    status: IndicatorStatus;
+  }>;
+  daftar_butir: AnalysisItemInput[];
+}
+
+export interface ItemAnalysis {
+  id_butir: string;
+  indikator: string;
+  jawaban_akhir: "benar" | "salah";
+  langkah_pertama_keliru: string | null;
+  jenis_kesalahan: string;
+  catatan_proses: string;
+}
+
+export interface IndicatorFeedback {
+  indikator: string;
+  yang_sudah_baik: string;
+  yang_perlu_diperkuat: string;
+  kemungkinan_penyebab: string;
+  langkah_perbaikan: string[];
+  petunjuk: string;
+}
+
+export interface StudentFeedback {
+  pembuka: string;
+  per_indikator: IndicatorFeedback[];
+  penutup: string;
+}
+
+export interface TeacherIndicatorNote {
+  indikator: string;
+  dugaan_jenis_kesalahan: string;
+  bukti: string;
+  pola_berulang: boolean;
+  rekomendasi_tindak_lanjut: string;
+}
+
+export interface StudentAnalysis {
+  version: 2;
+  id_siswa: string;
+  ringkasan_indikator: Array<{
+    indikator: string;
+    nama: string;
+    benar: number;
+    total: number;
+    status: string;
+  }>;
+  analisis_butir: ItemAnalysis[];
+  umpan_balik_siswa: StudentFeedback;
+  laporan_guru: {
+    gambaran_umum: string;
+    indikator_dikuasai: string[];
+    indikator_perlu_perhatian: TeacherIndicatorNote[];
+    butir_benar_proses_perlu_diperiksa: string[];
+    catatan_kehati_hatian: string;
+  };
+  generated_at: string;
+}
+
+export interface ClassPattern {
+  indikator: string;
+  dugaan_jenis_kesalahan: string;
+  bukti: string;
+  pola_berulang: boolean;
+  rekomendasi_tindak_lanjut: string;
+}
+
+export interface ClassReport {
+  version: 2;
+  token: string;
+  jumlah_siswa: number;
+  gambaran_umum: string;
+  penguasaan_indikator: Array<{
+    indikator: string;
+    persentase: number;
+    status_kelas: IndicatorStatus;
+    catatan: string;
+  }>;
+  pola_kesalahan: ClassPattern[];
+  siswa_perlu_perhatian: Array<{ nama: string; alasan: string }>;
+  rekomendasi_pembelajaran: string[];
+  catatan_kehati_hatian: string;
+  generated_at: string;
+}
+
+export interface ClassReportRow {
+  id: string;
+  token_used: string;
+  student_count: number;
+  summary_json: ClassReport;
   created_at: string;
 }
 

@@ -80,6 +80,31 @@ grant all on public.results to authenticated;
 create policy "results_admin_read"
   on public.results to authenticated using (true);
 
+-- Rekap nilai: admin boleh menghapus data terpilih atau seluruh data.
+drop policy if exists "results_admin_delete" on public.results;
+create policy "results_admin_delete"
+  on public.results to authenticated using (true);
+
+-- Ringkasan AI per kelas disimpan agar guru tidak perlu membuat ulang.
+create table if not exists public.class_reports (
+  id uuid primary key default gen_random_uuid(),
+  token_used text not null,
+  student_count integer not null default 0,
+  summary_json jsonb not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.class_reports enable row level security;
+revoke all on public.class_reports from anon;
+grant all on public.class_reports to authenticated;
+
+drop policy if exists "class_reports_select" on public.class_reports;
+drop policy if exists "class_reports_insert" on public.class_reports;
+drop policy if exists "class_reports_admin_all" on public.class_reports;
+create policy "class_reports_admin_all"
+  on public.class_reports to authenticated
+  using (true) with check (true);
+
 alter table public.results add column if not exists answers_correct_json jsonb;
 alter table public.results add column if not exists answers_key_json jsonb;
 
@@ -284,7 +309,7 @@ begin
     raise exception 'Rekomendasi tidak valid.';
   end if;
   update public.results
-  set ai_recommendation = left(btrim(p_text), 5000)
+  set ai_recommendation = left(btrim(p_text), 60000)
   where id = p_id and token_used = upper(btrim(p_token));
 end $$;
 

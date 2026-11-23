@@ -11,10 +11,16 @@ import {
   attachRecommendation,
 } from "../../lib/supabase";
 import { formatIdDateTime, formatScore } from "../../lib/scoring";
-import { recommendLearning } from "../../lib/agnes";
+import { analyzeStudent } from "../../lib/agnes";
+import {
+  buildAnalysisInput,
+  parseStudentAnalysis,
+} from "../../lib/analysis";
+import { StudentFeedbackView } from "../../components/StudentFeedbackView";
 import {
   classifyCompletion,
   type ResultRow,
+  type StudentAnalysis,
   type StudentQuestion,
 } from "../../types";
 
@@ -40,6 +46,7 @@ export default function Result() {
   const [questionMap, setQuestionMap] = useState<Map<string, StudentQuestion>>(
     () => new Map(),
   );
+  const [questionMapReady, setQuestionMapReady] = useState(false);
   const [loading, setLoading] = useState(!navigateState?.row);
   const [error, setError] = useState<string | null>(null);
   const [recPending, setRecPending] = useState(false);
@@ -74,42 +81,53 @@ export default function Result() {
   /* Peta soal (tanpa kunci) untuk tinjauan jawaban. */
   useEffect(() => {
     let alive = true;
-    void fetchStudentQuestionMap().then((m) => {
-      if (alive) setQuestionMap(m);
-    });
+    void fetchStudentQuestionMap()
+      .then((m) => {
+        if (alive) {
+          setQuestionMap(m);
+          setQuestionMapReady(true);
+        }
+      })
+      .catch(() => {
+        if (alive) setQuestionMapReady(true);
+      });
     return () => {
       alive = false;
     };
   }, []);
 
-  /* Rekomendasi Agnes AI menyusul setelah grading instan (RACE-01). */
+  /* Analisis langkah & umpan balik Agnes AI menyusul setelah grading
+     instan (RACE-01). Data butir lengkap dikirim agar AI dapat menelusuri
+     langkah, bukan hanya skor indikator. */
   useEffect(() => {
-    if (!result || (result.ai_recommendation ?? "").length > 0) return;
+    if (!result || !questionMapReady) return;
+    const existing = result.ai_recommendation ?? "";
+    const brokenJson =
+      existing.trim().startsWith("{") && !parseStudentAnalysis(existing);
+    if (existing.length > 0 && !brokenJson) return;
+
     let alive = true;
-    async function attach() {
+    async function run() {
       if (!result) return;
       setRecPending(true);
-      const text = await recommendLearning({
-        studentName: result.student_name,
-        score: result.score,
-        correctCount: result.correct_count,
-        wrongCount: result.wrong_count,
-        totalQuestions: result.total_questions,
-        indicators: result.indicator_summary_json ?? [],
-      });
+      const input = buildAnalysisInput(result, questionMap);
+      const analysis = await analyzeStudent(input);
+      const raw = JSON.stringify(analysis);
       try {
-        await attachRecommendation(result.id, result.token_used, text);
+        await attachRecommendation(result.id, result.token_used, raw);
       } catch {
-        /* tersimpan lokal saja; baris server dibiarkan tanpa rekomendasi */
+        /* tetap tampilkan analisis lokal walau gagal menyimpan */
       }
-      if (alive) setResult({ ...result, ai_recommendation: text });
-      if (alive) setRecPending(false);
+      if (alive) {
+        setResult({ ...result, ai_recommendation: raw });
+        setRecPending(false);
+      }
     }
-    void attach();
+    void run();
     return () => {
       alive = false;
     };
-  }, [result]);
+  }, [result, questionMap, questionMapReady]);
 
   if (loading) {
     return (
@@ -141,7 +159,14 @@ export default function Result() {
 
   const summary = result.indicator_summary_json ?? [];
   const kind = classifyCompletion(result.completion_status);
-  const recParts = buildRecommendationParts(result.ai_recommendation ?? "");
+  const analysis: StudentAnalysis | null = parseStudentAnalysis(
+    result.ai_recommendation,
+  );
+  const rawRecommendation = result.ai_recommendation ?? "";
+  const recParts =
+    analysis || rawRecommendation.trim().startsWith("{")
+      ? []
+      : buildRecommendationParts(rawRecommendation);
 
   return (
     <div className="min-h-[100dvh] bg-canvas">
@@ -235,7 +260,7 @@ export default function Result() {
         </Reveal>
       </section>
 
-      {/* Tile gelap: rekomendasi Agnes AI */}
+      {/* Tile gelap: umpan balik belajar Agnes AI */}
       <section className="bg-tile-2 px-6 py-16 sm:px-8">
         <div className="mx-auto max-w-2xl">
           <div className="flex items-center gap-3">
@@ -244,20 +269,27 @@ export default function Result() {
             </span>
             <div>
               <p className="text-body-strong text-white">
-                Rekomendasi Belajar
+                Umpan Balik Belajar
               </p>
               <p className="text-caption text-muted-dark">
-                Dihasilkan otomatis oleh Agnes AI (agnes-2.5-flash)
+                Analisis langkah dan indikator oleh Agnes AI (agnes-2.5-flash)
               </p>
             </div>
           </div>
 
           <Reveal delay={100}>
-            {recParts.length === 0 ? (
+            {analysis ? (
+              <div className="mt-8">
+                <StudentFeedbackView
+                  feedback={analysis.umpan_balik_siswa}
+                  tone="dark"
+                />
+              </div>
+            ) : recParts.length === 0 ? (
               <p className="text-lead-airy mt-8 text-white">
                 {recPending
-                  ? "Rekomendasi belajar Agnes AI sedang disiapkan…"
-                  : "Rekomendasi belum tersedia untuk hasil ini."}
+                  ? "Umpan balik belajar Agnes AI sedang disiapkan…"
+                  : "Umpan balik belum tersedia untuk hasil ini."}
               </p>
             ) : (
               <div className="mt-8 flex flex-col gap-4">
