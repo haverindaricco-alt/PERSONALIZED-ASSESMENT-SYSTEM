@@ -2,7 +2,11 @@ import { useRef, useState } from "react";
 import { Divide } from "lucide-react";
 import { MathText } from "./MathText";
 import { textareaClass } from "./ui";
-import { normalizeMathText } from "../lib/mathText";
+import {
+  normalizeMathText,
+  normalizePastedMath,
+  stripOuterDelimiters,
+} from "../lib/mathText";
 
 /** Kolom teks panjang dengan alat bantu pecahan yang sama seperti
     halaman ujian siswa. Nilai tetap disimpan sebagai teks `a/b` atau
@@ -37,8 +41,22 @@ export function FractionTextarea({
 
   const numValue = num.trim();
   const denValue = den.trim();
-  const denominatorIsZero = /^[+-]?0+(?:[.,]0+)?$/.test(denValue);
-  const valid = numValue.length > 0 && denValue.length > 0 && !denominatorIsZero;
+  const cleanNum = stripOuterDelimiters(numValue);
+  const cleanDen = stripOuterDelimiters(denValue);
+  const denominatorIsZero = /^[+-]?0+(?:[.,]0+)?$/.test(cleanDen);
+  const valid = cleanNum.length > 0 && cleanDen.length > 0 && !denominatorIsZero;
+
+  const tokenPreview = valid
+    ? (() => {
+        const atomicNum =
+          /^[A-Za-z0-9]+$/.test(cleanNum) || /^[+-]?\d+$/.test(cleanNum);
+        const atomicDen =
+          /^[A-Za-z0-9]+$/.test(cleanDen) || /^[+-]?\d+$/.test(cleanDen);
+        return atomicNum && atomicDen
+          ? `${cleanNum}/${cleanDen}`
+          : `(${cleanNum})/(${cleanDen})`;
+      })()
+    : "";
 
   function rememberSelection() {
     const el = areaRef.current;
@@ -46,20 +64,44 @@ export function FractionTextarea({
     selectionRef.current = { start: el.selectionStart, end: el.selectionEnd };
   }
 
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const text = e.clipboardData.getData("text");
+    if (!text) return;
+    const normalized = normalizePastedMath(text);
+    if (normalized !== text) {
+      e.preventDefault();
+      const el = areaRef.current;
+      if (!el) {
+        onChange(value + normalized);
+        return;
+      }
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const nextValue = value.slice(0, start) + normalized + value.slice(end);
+      onChange(nextValue);
+      requestAnimationFrame(() => {
+        const newPos = start + normalized.length;
+        el.focus();
+        el.setSelectionRange(newPos, newPos);
+        selectionRef.current = { start: newPos, end: newPos };
+      });
+    }
+  }
+
   function insertFraction() {
     if (!valid) return;
 
     /* Token tunggal (5, y2, -1) tidak perlu tanda kurung agar pecahan
        angka tetap dikenali sebagai nilai oleh canonical_answer. Ekspresi
-       seperti y2 - y1 dibungkus agar batas pembilang/penyebut jelas. */
+       seperti y2 - y1 atau 3 - (-2) dibungkus rapi agar batas pembilang/penyebut jelas. */
     const atomicNum =
-      /^[A-Za-z0-9]+$/.test(numValue) || /^[+-]?\d+$/.test(numValue);
+      /^[A-Za-z0-9]+$/.test(cleanNum) || /^[+-]?\d+$/.test(cleanNum);
     const atomicDen =
-      /^[A-Za-z0-9]+$/.test(denValue) || /^[+-]?\d+$/.test(denValue);
+      /^[A-Za-z0-9]+$/.test(cleanDen) || /^[+-]?\d+$/.test(cleanDen);
     const token =
       atomicNum && atomicDen
-        ? `${numValue}/${denValue}`
-        : `(${numValue})/(${denValue})`;
+        ? `${cleanNum}/${cleanDen}`
+        : `(${cleanNum})/(${cleanDen})`;
 
     const { start, end } = selectionRef.current;
     onChange(value.slice(0, start) + token + value.slice(end));
@@ -116,6 +158,7 @@ export function FractionTextarea({
         spellCheck={false}
         value={value}
         onChange={(e) => onChange(normalizeMathText(e.target.value))}
+        onPaste={handlePaste}
         onFocus={rememberSelection}
         onSelect={rememberSelection}
         onKeyUp={rememberSelection}
@@ -139,7 +182,7 @@ export function FractionTextarea({
             <div>
               <p className="text-caption-strong text-ink">Sisipkan pecahan</p>
               <p className="text-caption mt-1 text-ink-48">
-                Boleh angka, huruf, dan operasi. Contoh: y2 - y1.
+                Boleh angka, huruf, operasi hitung, atau kurung bersarang seperti 3 - (-2).
               </p>
             </div>
             <button
@@ -159,9 +202,10 @@ export function FractionTextarea({
                 autoComplete="off"
                 spellCheck={false}
                 value={num}
+                placeholder="Misal: -8 - 7 atau y2 - y1"
                 onChange={(e) => setNum(normalizeMathText(e.target.value))}
                 onKeyDown={insertOnEnter}
-                className="focus-ring h-10 w-40 rounded-util border border-hairline bg-canvas px-3 text-body text-ink placeholder:text-ink-48"
+                className="focus-ring h-10 w-48 rounded-util border border-hairline bg-canvas px-3 text-body text-ink placeholder:text-ink-48"
               />
             </label>
 
@@ -174,9 +218,10 @@ export function FractionTextarea({
                 autoComplete="off"
                 spellCheck={false}
                 value={den}
+                placeholder="Misal: 3 - (-2) atau [3-(-2)]"
                 onChange={(e) => setDen(normalizeMathText(e.target.value))}
                 onKeyDown={insertOnEnter}
-                className="focus-ring h-10 w-40 rounded-util border border-hairline bg-canvas px-3 text-body text-ink placeholder:text-ink-48"
+                className="focus-ring h-10 w-48 rounded-util border border-hairline bg-canvas px-3 text-body text-ink placeholder:text-ink-48"
               />
             </label>
 
@@ -189,6 +234,15 @@ export function FractionTextarea({
               Sisipkan
             </button>
           </div>
+
+          {tokenPreview && (
+            <div className="mt-3 flex items-center gap-3 rounded-util border border-hairline bg-canvas p-3">
+              <span className="text-caption text-ink-48">Pratinjau pecahan:</span>
+              <div className="text-body text-ink font-medium">
+                <MathText text={tokenPreview} />
+              </div>
+            </div>
+          )}
 
           {(numValue || denValue) && !valid && (
             <p className="text-caption mt-2 text-bad">

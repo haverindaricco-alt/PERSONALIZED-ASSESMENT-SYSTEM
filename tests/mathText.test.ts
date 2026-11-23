@@ -44,3 +44,58 @@ test("teks tanpa pangkat bawah tidak berubah", () => {
     "(y2 - y1)/(x2 - x1)",
   );
 });
+
+test("pecahan dengan kurung bersarang seperti [3-(-2)] atau 3-(-2) dikenali", () => {
+  assert.deepEqual(parseMathText("(-8 - 7)/(3 - (-2))"), [
+    {
+      type: "fraction",
+      numerator: "-8 - 7",
+      denominator: "3 - (-2)",
+    },
+  ]);
+
+  assert.deepEqual(parseMathText("m = (-8 - 7)/[3 - (-2)]"), [
+    { type: "text", value: "m = " },
+    {
+      type: "fraction",
+      numerator: "-8 - 7",
+      denominator: "3 - (-2)",
+    },
+  ]);
+
+  assert.deepEqual(parseMathText("[-8 - 7]/[3 - (-2)]"), [
+    {
+      type: "fraction",
+      numerator: "-8 - 7",
+      denominator: "3 - (-2)",
+    },
+  ]);
+});
+
+test("format copy LaTeX \\frac otomatis dikenali dan dinormalkan", () => {
+  assert.equal(
+    normalizeMathText("m = \\frac{-8 - 7}{3 - (-2)}"),
+    "m = (-8 - 7)/(3 - (-2))",
+  );
+
+  assert.deepEqual(parseMathText("\\frac{-8 - 7}{3 - (-2)}"), [
+    {
+      type: "fraction",
+      numerator: "-8 - 7",
+      denominator: "3 - (-2)",
+    },
+  ]);
+});
+
+test("format copy pecahan multiline dengan garis pembagi otomatis dinormalkan", () => {
+  const multiline = "-8 - 7\n------\n3 - (-2)";
+  assert.equal(
+    normalizeMathText(multiline),
+    "(-8 - 7)/(3 - (-2))",
+  );
+});
+
+test("format copy pecahan dengan simbol Unicode dinormalkan", () => {
+  assert.equal(normalizeMathText("1½ + ¾"), "11/2 + 3/4");
+  assert.equal(normalizeMathText("5⁄6"), "5/6");
+});
