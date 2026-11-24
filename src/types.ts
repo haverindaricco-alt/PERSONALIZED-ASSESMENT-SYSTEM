@@ -109,9 +109,13 @@ export interface IndicatorFeedback {
 }
 
 export interface StudentFeedback {
-  pembuka: string;
-  per_indikator: IndicatorFeedback[];
-  penutup: string;
+  /** Narasi umpan balik padat dalam bentuk beberapa paragraf. */
+  paragraf?: string[];
+  ringkasan?: string;
+  /** Format lama (per-indikator) tetap didukung untuk kompatibilitas data. */
+  pembuka?: string;
+  per_indikator?: IndicatorFeedback[];
+  penutup?: string;
 }
 
 export interface TeacherIndicatorNote {

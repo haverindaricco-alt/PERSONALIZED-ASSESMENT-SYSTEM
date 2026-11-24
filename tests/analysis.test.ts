@@ -190,9 +190,9 @@ test("butir tidak dijawab tetap ikut dianalisis sebagai kosong", () => {
   assert.equal(blank.status_benar_salah, "salah");
 });
 
-test("jenis kesalahan di luar empat kategori dibakukan", () => {
+test("jenis kesalahan di luar kategori resmi dibakukan", () => {
   const raw = JSON.parse(JSON.stringify(studentAnalysis));
-  raw.analisis_butir[0].jenis_kesalahan = "terbawa dari langkah sebelumnya";
+  raw.analisis_butir[0].jenis_kesalahan = "salah_tidak_dikenal";
   const parsed = parseStudentAnalysis(JSON.stringify(raw));
   assert.ok(parsed);
   assert.equal(
@@ -201,10 +201,28 @@ test("jenis kesalahan di luar empat kategori dibakukan", () => {
   );
 });
 
-test("cuplikan umpan balik memakai pembuka", () => {
+test("cuplikan umpan balik memakai paragraf atau pembuka", () => {
   assert.equal(
     feedbackPreview(studentAnalysis),
     "Kamu sudah menuliskan langkah dengan rapi.",
   );
   assert.equal(feedbackPreview(null), "");
+
+  const withParagraphs = {
+    ...studentAnalysis,
+    umpan_balik_siswa: {
+      paragraf: [
+        "Kerja bagus! Kamu sudah memahami konsep dasar gradien.",
+        "Namun perhatikan tanda minus saat mensubstitusikan koordinat.",
+        "Terus berlatih dengan soal variasi.",
+      ],
+    },
+  };
+  const parsed = parseStudentAnalysis(JSON.stringify(withParagraphs));
+  assert.ok(parsed);
+  assert.equal(parsed.umpan_balik_siswa.paragraf?.length, 3);
+  assert.equal(
+    feedbackPreview(parsed),
+    "Kerja bagus! Kamu sudah memahami konsep dasar gradien.",
+  );
 });

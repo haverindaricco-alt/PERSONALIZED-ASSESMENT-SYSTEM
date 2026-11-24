@@ -20,6 +20,39 @@ export function StudentFeedbackView({
     ? "rounded-chip bg-white/10 px-3 py-1 text-caption-strong text-white/80"
     : "rounded-chip bg-canvas px-3 py-1 text-caption-strong text-primary";
 
+  const paragraphs =
+    feedback.paragraf && feedback.paragraf.length > 0
+      ? feedback.paragraf
+      : feedback.ringkasan
+        ? feedback.ringkasan
+            .split(/\n\s*\n/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+
+  if (paragraphs.length > 0) {
+    return (
+      <div className="flex flex-col gap-4">
+        <article className={"rounded-card p-6 sm:p-7 " + card}>
+          <div className="flex items-center gap-2 mb-4">
+            <span className={chip}>Umpan Balik Belajar</span>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {paragraphs.map((p, index) => (
+              <p
+                key={index}
+                className={"text-body leading-relaxed " + body}
+              >
+                {p}
+              </p>
+            ))}
+          </div>
+        </article>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5">
       {feedback.pembuka && (
@@ -28,7 +61,7 @@ export function StudentFeedbackView({
         </p>
       )}
 
-      {feedback.per_indikator.map((item, index) => (
+      {(feedback.per_indikator ?? []).map((item, index) => (
         <article key={`${item.indikator}-${index}`} className={"rounded-card p-5 sm:p-6 " + card}>
           <span className={chip}>{item.indikator}</span>
 

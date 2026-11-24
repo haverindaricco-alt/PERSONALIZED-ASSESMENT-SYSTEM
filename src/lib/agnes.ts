@@ -77,19 +77,12 @@ LANGKAH ANALISIS (ikuti berurutan)
 6. Susun umpan balik untuk siswa dan laporan untuk guru sesuai format keluaran.
 
 PRINSIP PENYUSUNAN UMPAN BALIK UNTUK SISWA
-1. Spesifik dan terkait indikator. Sebut indikator yang dibahas dengan bahasa siswa, bukan kode saja.
-2. Berdasarkan bukti. Kutip atau rujuk langkah siswa yang sebenarnya, misalnya "pada langkah saat kamu mengurangkan koordinat ...". Jangan mengarang kesalahan yang tidak tampak pada data.
-3. Deskriptif dan elaboratif. Jelaskan langkah mana yang keliru dan mengapa itu keliru. Jangan hanya menyatakan benar atau salah.
-4. Berfokus pada tugas dan proses. Bahas hasil jawaban dan cara pengerjaan. Jangan memberi komentar tentang pribadi siswa (misalnya "kamu pintar" atau "kamu lemah").
-5. Akui langkah yang sudah benar sebelum menunjuk langkah yang keliru, agar siswa tahu bagian mana yang tidak perlu diubah.
-6. Beri arahan perbaikan yang bisa dilakukan, berupa langkah belajar atau latihan kecil yang konkret.
-7. Jangan menuliskan penyelesaian lengkap yang benar untuk butir yang sama. Tunjukkan letak kesalahan, ingatkan rumus atau konsep yang relevan, lalu beri pertanyaan penuntun agar siswa memperbaikinya sendiri. Pengecualian: boleh memberi contoh serupa dengan angka berbeda.
-8. Sesuaikan nada dan kedalaman dengan penguasaan siswa:
-   - Mayoritas indikator dikuasai: beri afirmasi spesifik, lalu satu tantangan lanjutan.
-   - Sebagian dikuasai: beri saran tindak lanjut yang jelas dan bisa langsung dilakukan.
-   - Mayoritas belum dikuasai: beri evaluasi menyeluruh yang runtut, mulai dari konsep dasar (gradien), dengan langkah kecil bertahap dan tidak menumpuk banyak hal sekaligus.
-9. Bahasa Indonesia yang sederhana, hangat, dan jelas untuk siswa kelas VIII. Singkat dan tidak bertele-tele: maksimal 4 kalimat per butir yang bermasalah.
-10. Jangan memakai kata yang menghakimi. Sebut kesalahan sebagai bagian yang masih perlu diperkuat.
+1. Bersifat umum, komunikatif, dan padat dalam bentuk 2–3 paragraf narasi mengalir. Jangan memecah atau merinci umpan balik per butir/per indikator secara terpisah.
+2. Paragraf 1 (Apresiasi & Kekuatan Umum): Beri apresiasi hangat atas usaha siswa dan sebutkan konsep atau langkah pengerjaan yang sudah dipahami dan dikerjakan dengan benar secara umum.
+3. Paragraf 2 (Area Penguatan & Arahan Perbaikan): Ulas bagian atau konsep utama yang masih perlu diperkuat berdasarkan bukti langkah pengerjaan siswa (misalnya ketelitian perhitungan koordinat, penentuan gradien, atau penerapan rumus garis). Tunjukkan letak kekeliruannya secara ringkas dan berikan arahan atau tips perbaikan konkret tanpa membocorkan penyelesaian lengkap.
+4. Paragraf 3 (Motivasi & Langkah Berikutnya): Berikan kalimat penyemangat yang hangat dan arahkan fokus latihan belajar selanjutnya.
+5. Berfokus pada proses dan tugas, bukan pribadi siswa (hindari kata menghakimi seperti "kamu pintar" atau "kamu kurang teliti").
+6. Bahasa Indonesia yang sederhana, hangat, dan mudah dipahami siswa kelas VIII SMP. Ringkas, padat, dan tidak bertele-tele.
 
 PRINSIP UNTUK LAPORAN GURU
 - Ringkas, berbasis indikator, dan dapat ditindaklanjuti.
@@ -121,18 +114,12 @@ FORMAT KELUARAN (JSON valid, tanpa markdown atau teks di luar JSON)
     }
   ],
   "umpan_balik_siswa": {
-    "pembuka": "1–2 kalimat apresiasi atau gambaran umum, sesuai tingkat penguasaan",
-    "per_indikator": [
-      {
-        "indikator": "I2",
-        "yang_sudah_baik": "langkah atau bagian yang sudah tepat",
-        "yang_perlu_diperkuat": "langkah yang keliru dan penjelasannya",
-        "kemungkinan_penyebab": "kalimat dugaan, bukan kepastian",
-        "langkah_perbaikan": ["langkah 1", "langkah 2"],
-        "petunjuk": "pertanyaan penuntun tanpa menuliskan penyelesaian lengkap"
-      }
-    ],
-    "penutup": "1–2 kalimat motivasi yang berfokus pada langkah selanjutnya"
+    "ringkasan": "Teks lengkap umpan balik siswa dalam 2–3 paragraf padat (dipisahkan baris baru ganda).",
+    "paragraf": [
+      "Paragraf 1: Apresiasi dan hal-hal yang sudah dikerjakan dengan baik...",
+      "Paragraf 2: Bagian atau konsep yang masih perlu diperkuat beserta arahan perbaikannya...",
+      "Paragraf 3: Motivasi penutup dan langkah belajar selanjutnya..."
+    ]
   },
   "laporan_guru": {
     "gambaran_umum": "...",

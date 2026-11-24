@@ -2,6 +2,7 @@ import type {
   ClassPattern,
   ClassReport,
   CompletionKind,
+  IndicatorFeedback,
   IndicatorStatus,
   ResultRow,
   StudentAnalysis,
@@ -136,7 +137,7 @@ function normalizeItem(raw: unknown): StudentAnalysis["analisis_butir"][number] 
 
 function normalizeIndicatorFeedback(
   raw: unknown,
-): StudentAnalysis["umpan_balik_siswa"]["per_indikator"][number] {
+): IndicatorFeedback {
   const o = record(raw);
   return {
     indikator: text(o.indikator, "Umum"),
@@ -187,25 +188,45 @@ export function parseStudentAnalysis(
   const report = record(o.laporan_guru);
   if (!o.umpan_balik_siswa || !o.laporan_guru) return null;
 
-  return {
-    version: 2,
-    id_siswa: text(o.id_siswa),
-    ringkasan_indikator: array(o.ringkasan_indikator).map((row) => {
-      const r = record(row);
-      return {
-        indikator: text(r.indikator, "Umum"),
-        nama: text(r.nama, text(r.indikator, "Umum")),
-        benar: Number(r.benar) || 0,
-        total: Number(r.total) || 0,
-        status: text(r.status, "Belum Dikuasai"),
-      };
-    }),
-    analisis_butir: array(o.analisis_butir).map(normalizeItem),
-    umpan_balik_siswa: {
-      pembuka: text(feedback.pembuka),
-      per_indikator: array(feedback.per_indikator).map(normalizeIndicatorFeedback),
-      penutup: text(feedback.penutup),
-    },
+    const rawParagraf = array(feedback.paragraf)
+      .map((p) => text(p))
+      .filter(Boolean);
+    const rawRingkasan = text(feedback.ringkasan);
+    const paragraf =
+      rawParagraf.length > 0
+        ? rawParagraf
+        : rawRingkasan
+          ? rawRingkasan
+              .split(/\n\s*\n/)
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
+    const ringkasan =
+      rawRingkasan || (paragraf.length > 0 ? paragraf.join("\n\n") : "");
+
+    return {
+      version: 2,
+      id_siswa: text(o.id_siswa),
+      ringkasan_indikator: array(o.ringkasan_indikator).map((row) => {
+        const r = record(row);
+        return {
+          indikator: text(r.indikator, "Umum"),
+          nama: text(r.nama, text(r.indikator, "Umum")),
+          benar: Number(r.benar) || 0,
+          total: Number(r.total) || 0,
+          status: text(r.status, "Belum Dikuasai"),
+        };
+      }),
+      analisis_butir: array(o.analisis_butir).map(normalizeItem),
+      umpan_balik_siswa: {
+        ringkasan,
+        paragraf,
+        pembuka: text(feedback.pembuka),
+        per_indikator: array(feedback.per_indikator).map(
+          normalizeIndicatorFeedback,
+        ),
+        penutup: text(feedback.penutup),
+      },
     laporan_guru: {
       gambaran_umum: text(report.gambaran_umum),
       indikator_dikuasai: array(report.indikator_dikuasai)
@@ -470,9 +491,16 @@ export function parseClassReport(
 /** Cuplikan untuk kolom umpan balik pada rekap nilai. */
 export function feedbackPreview(analysis: StudentAnalysis | null): string {
   if (!analysis) return "";
-  const first = analysis.umpan_balik_siswa.per_indikator[0];
+  const fb = analysis.umpan_balik_siswa;
+  if (fb.paragraf && fb.paragraf.length > 0) {
+    return fb.paragraf[0];
+  }
+  if (fb.ringkasan) {
+    return fb.ringkasan;
+  }
+  const first = fb.per_indikator?.[0];
   return (
-    analysis.umpan_balik_siswa.pembuka ||
+    fb.pembuka ||
     first?.yang_perlu_diperkuat ||
     first?.yang_sudah_baik ||
     analysis.laporan_guru.gambaran_umum ||

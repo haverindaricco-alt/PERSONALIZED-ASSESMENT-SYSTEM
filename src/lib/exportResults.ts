@@ -8,11 +8,18 @@ const HEADER_FILL = "#F5F5F7";
 function feedbackForExcel(result: ResultRow): string {
   const analysis = parseStudentAnalysis(result.ai_recommendation);
   if (!analysis) return result.ai_recommendation ?? "";
-  const lines: string[] = [];
-  if (analysis.umpan_balik_siswa.pembuka) {
-    lines.push(analysis.umpan_balik_siswa.pembuka);
+  const fb = analysis.umpan_balik_siswa;
+  if (fb.paragraf && fb.paragraf.length > 0) {
+    return fb.paragraf.join("\n\n");
   }
-  for (const item of analysis.umpan_balik_siswa.per_indikator) {
+  if (fb.ringkasan) {
+    return fb.ringkasan;
+  }
+  const lines: string[] = [];
+  if (fb.pembuka) {
+    lines.push(fb.pembuka);
+  }
+  for (const item of fb.per_indikator ?? []) {
     const parts = [`${item.indikator}:`];
     if (item.yang_sudah_baik) parts.push(`sudah baik: ${item.yang_sudah_baik}`);
     if (item.yang_perlu_diperkuat) {
@@ -20,8 +27,8 @@ function feedbackForExcel(result: ResultRow): string {
     }
     lines.push(parts.join(" "));
   }
-  if (analysis.umpan_balik_siswa.penutup) {
-    lines.push(analysis.umpan_balik_siswa.penutup);
+  if (fb.penutup) {
+    lines.push(fb.penutup);
   }
   return lines.join("\n");
 }

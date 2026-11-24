@@ -95,32 +95,53 @@ const EMPTY_FORM: QuestionForm = {
 function formatFeedbackText(row: ResultRow): string {
   const analysis = parseStudentAnalysis(row.ai_recommendation);
   if (!analysis) return row.ai_recommendation || "Belum ada umpan balik.";
+  const fb = analysis.umpan_balik_siswa;
   const lines: string[] = [];
   lines.push(`Feedback Asesmen PGL - ${row.student_name}`);
   lines.push(`Nilai: ${formatScore(row.score)} | Token: ${row.token_used}`);
   lines.push("");
-  if (analysis.umpan_balik_siswa.pembuka) {
-    lines.push(analysis.umpan_balik_siswa.pembuka);
-    lines.push("");
-  }
-  for (const item of analysis.umpan_balik_siswa.per_indikator) {
-    lines.push(`[Indikator: ${item.indikator}]`);
-    if (item.yang_sudah_baik) lines.push(`• Sudah baik: ${item.yang_sudah_baik}`);
-    if (item.yang_perlu_diperkuat) lines.push(`• Perlu diperkuat: ${item.yang_perlu_diperkuat}`);
-    if (item.kemungkinan_penyebab) lines.push(`• Catatan dugaan: ${item.kemungkinan_penyebab}`);
-    if (item.langkah_perbaikan && item.langkah_perbaikan.length > 0) {
-      lines.push("• Langkah perbaikan:");
-      for (const step of item.langkah_perbaikan) {
-        lines.push(`  - ${step}`);
-      }
+
+  const paragraphs =
+    fb.paragraf && fb.paragraf.length > 0
+      ? fb.paragraf
+      : fb.ringkasan
+        ? fb.ringkasan
+            .split(/\n\s*\n/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+
+  if (paragraphs.length > 0) {
+    for (const p of paragraphs) {
+      lines.push(p);
+      lines.push("");
     }
-    if (item.petunjuk) lines.push(`• Petunjuk: ${item.petunjuk}`);
-    lines.push("");
+  } else {
+    // Fallback data lama (per indikator)
+    if (fb.pembuka) {
+      lines.push(fb.pembuka);
+      lines.push("");
+    }
+    for (const item of fb.per_indikator ?? []) {
+      lines.push(`[Indikator: ${item.indikator}]`);
+      if (item.yang_sudah_baik) lines.push(`• Sudah baik: ${item.yang_sudah_baik}`);
+      if (item.yang_perlu_diperkuat) lines.push(`• Perlu diperkuat: ${item.yang_perlu_diperkuat}`);
+      if (item.kemungkinan_penyebab) lines.push(`• Catatan dugaan: ${item.kemungkinan_penyebab}`);
+      if (item.langkah_perbaikan && item.langkah_perbaikan.length > 0) {
+        lines.push("• Langkah perbaikan:");
+        for (const step of item.langkah_perbaikan) {
+          lines.push(`  - ${step}`);
+        }
+      }
+      if (item.petunjuk) lines.push(`• Petunjuk: ${item.petunjuk}`);
+      lines.push("");
+    }
+    if (fb.penutup) {
+      lines.push(fb.penutup);
+    }
   }
-  if (analysis.umpan_balik_siswa.penutup) {
-    lines.push(analysis.umpan_balik_siswa.penutup);
-  }
-  return lines.join("\n");
+
+  return lines.join("\n").trim();
 }
 
 function formatClassReportText(report: ClassReportRow): string {
