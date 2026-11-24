@@ -40,7 +40,14 @@ export function useTimer(deadlineMs: number, onExpire: () => void): number {
 
     tick();
     const interval = window.setInterval(tick, 250);
-    return () => window.clearInterval(interval);
+    const onWake = () => tick();
+    window.addEventListener("focus", onWake);
+    document.addEventListener("visibilitychange", onWake);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onWake);
+      document.removeEventListener("visibilitychange", onWake);
+    };
   }, [deadlineMs]);
 
   return remainingMs;

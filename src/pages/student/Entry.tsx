@@ -39,7 +39,7 @@ const RULES = [
   {
     icon: ShieldAlert,
     title: "Focus Lock",
-    body: "Pindah tab atau keluar dari halaman akan menghentikan ujian secara paksa dengan status DIHENTIKAN.",
+    body: "Pindah tab atau keluar dari halaman pada komputer akan menghentikan ujian dengan status DIHENTIKAN. Khusus akses HP, layar mati (sleep/kunci layar) tidak menghentikan ujian, namun waktu tetap berjalan.",
   },
   {
     icon: Save,

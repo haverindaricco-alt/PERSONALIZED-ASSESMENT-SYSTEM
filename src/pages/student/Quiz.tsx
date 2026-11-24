@@ -107,6 +107,60 @@ export default function Quiz() {
   }, [doSubmit]);
   useAntiCheat(onViolation);
 
+  /* Screen Wake Lock: menjaga layar HP tetap menyala selama siswa mengerjakan ujian */
+  useEffect(() => {
+    let wakeLock: { release: () => Promise<void> } | null = null;
+    let active = true;
+
+    async function requestLock() {
+      if (!active) return;
+      if (
+        typeof navigator !== "undefined" &&
+        "wakeLock" in navigator &&
+        typeof (
+          navigator as unknown as {
+            wakeLock?: {
+              request: (
+                type: string,
+              ) => Promise<{ release: () => Promise<void> }>;
+            };
+          }
+        ).wakeLock?.request === "function"
+      ) {
+        try {
+          wakeLock = await (
+            navigator as unknown as {
+              wakeLock: {
+                request: (
+                  type: string,
+                ) => Promise<{ release: () => Promise<void> }>;
+              };
+            }
+          ).wakeLock.request("screen");
+        } catch {
+          /* Abaikan bila perangkat membatasi wake lock (misal baterai hemat daya) */
+        }
+      }
+    }
+
+    void requestLock();
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void requestLock();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      active = false;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (wakeLock) {
+        void wakeLock.release().catch(() => {});
+      }
+    };
+  }, []);
+
   /* ---------- Navigasi & pengisian jawaban ---------- */
 
   const handleChange = useCallback(
